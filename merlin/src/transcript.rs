@@ -1,7 +1,6 @@
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::vec::Vec;
 use rand_core;
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::strobe::Strobe128;
@@ -53,7 +52,8 @@ fn encode_usize_as_u32(x: usize) -> [u8; 4] {
 /// implement a proof system, see the documentation at
 /// [merlin.cool](https://merlin.cool), particularly the [Using
 /// Merlin](https://merlin.cool/use/index.html) section.
-#[derive(Clone, Zeroize, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize)]
+#[derive(Clone, Zeroize, CanonicalSerialize, CanonicalDeserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Transcript {
     pub strobe: Strobe128,
 }

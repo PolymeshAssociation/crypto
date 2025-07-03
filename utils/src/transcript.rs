@@ -9,7 +9,6 @@ use ark_std::{
     vec::Vec,
 };
 pub use merlin::Transcript as Merlin;
-use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// must be specific to the application.
@@ -18,8 +17,9 @@ pub fn new_merlin_transcript(label: &'static [u8]) -> impl Transcript + Clone + 
 }
 
 #[derive(
-    Clone, Zeroize, ZeroizeOnDrop, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone, Zeroize, ZeroizeOnDrop, CanonicalSerialize, CanonicalDeserialize,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MerlinTranscript {
     pub merlin: Merlin,
     pub next_label: Vec<u8>,

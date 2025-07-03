@@ -4,7 +4,9 @@ use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::PrimeField;
 use ark_serialize::*;
 use core::iter::Zip;
+#[cfg(feature = "serde")]
 use serde::{de::Error, Deserialize, Deserializer, Serializer};
+#[cfg(feature = "serde")]
 use serde_with::{DeserializeAs, SerializeAs};
 use zeroize::Zeroize;
 
@@ -13,7 +15,8 @@ use rayon::prelude::*;
 
 /// Combines two vectors together if they have equal length.
 /// Allows to iterate over the given pairs.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct OwnedPairs<Left, Right> {
     left: Vec<Left>,
     right: Vec<Right>,
@@ -243,6 +246,7 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
 impl<LeftAs, RightAs, Left, Right> SerializeAs<OwnedPairs<LeftAs, RightAs>>
     for OwnedPairs<Left, Right>
 where
@@ -260,6 +264,7 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de, Left, Right> Deserialize<'de> for OwnedPairs<Left, Right>
 where
     Left: Deserialize<'de>,
@@ -275,6 +280,7 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de, LeftAs, RightAs, Left, Right> DeserializeAs<'de, OwnedPairs<LeftAs, RightAs>>
     for OwnedPairs<Left, Right>
 where

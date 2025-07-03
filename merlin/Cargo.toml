@@ -18,10 +18,10 @@ exclude = [".travis.yml", ".gitignore"]
 features = ["nightly"]
 
 [dependencies]
-ark-serialize.workspace = true
-ark-std.workspace = true
-zeroize.workspace = true
-serde.workspace = true
+ark-serialize = { workspace = true, default-features = false }
+ark-std = { workspace = true, default-features = false }
+zeroize = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false, optional = true }
 keccak = { version = "0.1.0", default-features = false }
 byteorder = { version = "1.2.4", default-features = false }
 rand_core = { version = "0.6", default-features = false }
@@ -37,3 +37,4 @@ default = ["std"]
 nightly = []
 debug-transcript = ["hex"]
 std = ["rand_core/std", "byteorder/std"]
+serde = ["dep:serde"]

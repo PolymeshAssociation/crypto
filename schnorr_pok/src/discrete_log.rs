@@ -21,14 +21,14 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{io::Write, ops::Neg, vec::Vec};
 use dock_crypto_utils::{
-    randomized_mult_checker::RandomizedMultChecker, serde_utils::ArkObjectBytes,
+    randomized_mult_checker::RandomizedMultChecker,
 };
-use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+#[cfg(feature = "serde")]
+use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Protocol for proving knowledge of discrete log, i.e given public `Y` and `G`, prove knowledge of `x` in `G * x = y`
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
     Default,
     Clone,
@@ -37,26 +37,25 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
     Debug,
     CanonicalSerialize,
     CanonicalDeserialize,
-    Serialize,
-    Deserialize,
     Zeroize,
     ZeroizeOnDrop,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PokDiscreteLogProtocol<G: AffineRepr> {
     /// Commitment to randomness
     #[zeroize(skip)]
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub t: G,
     /// Randomness chosen by the prover
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     blinding: G::ScalarField,
     /// Prover's secret `x`
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     witness: G::ScalarField,
 }
 
 /// Proof of knowledge of discrete log
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
     Default,
     Clone,
@@ -65,18 +64,17 @@ pub struct PokDiscreteLogProtocol<G: AffineRepr> {
     Debug,
     CanonicalSerialize,
     CanonicalDeserialize,
-    Serialize,
-    Deserialize,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PokDiscreteLog<G: AffineRepr> {
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub t: G,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub response: G::ScalarField,
 }
 
 /// Protocol for proving knowledge of 2 discrete logs, i.e given public `Y`, `G1` and `G2`, prove knowledge of `x1` and `x2` in `G1 * x1 + G2 * x2 = Y`
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
     Default,
     Clone,
@@ -85,27 +83,26 @@ pub struct PokDiscreteLog<G: AffineRepr> {
     Debug,
     CanonicalSerialize,
     CanonicalDeserialize,
-    Serialize,
-    Deserialize,
     Zeroize,
     ZeroizeOnDrop,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PokPedersenCommitmentProtocol<G: AffineRepr> {
     #[zeroize(skip)]
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub t: G,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub(crate) blinding1: G::ScalarField,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub(crate) witness1: G::ScalarField,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub(crate) blinding2: G::ScalarField,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub(crate) witness2: G::ScalarField,
 }
 
 /// Proof of knowledge of 2 discrete logs
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
     Default,
     Clone,
@@ -114,15 +111,14 @@ pub struct PokPedersenCommitmentProtocol<G: AffineRepr> {
     Debug,
     CanonicalSerialize,
     CanonicalDeserialize,
-    Serialize,
-    Deserialize,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PokPedersenCommitment<G: AffineRepr> {
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub t: G,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub response1: G::ScalarField,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub response2: G::ScalarField,
 }
 

@@ -2,15 +2,16 @@
 
 use ark_serialize::SerializationError;
 use ark_std::fmt::Debug;
+#[cfg(feature = "serde")]
 use dock_crypto_utils::serde_utils::ArkSerializationError;
-use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SchnorrError {
     ExpectedSameSizeSequences(usize, usize),
     IndexOutOfBounds(usize, usize),
     InvalidResponse,
-    #[serde(with = "ArkSerializationError")]
+    #[cfg_attr(feature = "serde", serde(with = "ArkSerializationError"))]
     Serialization(SerializationError),
     ValueMustNotBeEqual,
     InvalidProofOfEquality,

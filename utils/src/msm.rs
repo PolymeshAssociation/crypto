@@ -1,21 +1,22 @@
-use crate::serde_utils::*;
 use ark_ec::{scalar_mul::fixed_base::FixedBase, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{fmt::Debug, ops::Mul, vec::Vec};
-use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+
+#[cfg(feature = "serde")]
+use crate::serde_utils::ArkObjectBytes;
 
 /// Use when same elliptic curve point is to be multiplied by several scalars.
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
-    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WindowTable<G: CurveGroup> {
     scalar_size: usize,
     window_size: usize,
     outerc: usize,
-    #[serde_as(as = "Vec<Vec<ArkObjectBytes>>")]
+    #[cfg_attr(feature = "serde", serde_as(as = "Vec<Vec<ArkObjectBytes>>"))]
     table: Vec<Vec<G::Affine>>,
 }
 

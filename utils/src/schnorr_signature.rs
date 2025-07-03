@@ -1,19 +1,20 @@
-use crate::{hashing_utils::field_elem_from_try_and_incr, serde_utils::ArkObjectBytes};
+use crate::hashing_utils::field_elem_from_try_and_incr;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{rand::RngCore, vec, vec::Vec, UniformRand};
 use digest::Digest;
-use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+#[cfg(feature = "serde")]
+use crate::serde_utils::ArkObjectBytes;
 
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
-    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Signature<G: AffineRepr> {
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub response: G::ScalarField,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub challenge: G::ScalarField,
 }
 

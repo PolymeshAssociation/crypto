@@ -20,8 +20,9 @@ ark-std = { workspace = true, default-features = false }
 rayon = { workspace = true, default-features = false, optional = true}
 digest = { workspace = true, default-features = false }
 dock_crypto_utils = { version = "0.22.0", default-features = false, path = "../utils" }
-serde = { workspace = true, default-features = false }
-serde_with = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false, optional = true }
+serde_with = { workspace = true, default-features = false, optional = true }
+cfg_eval = { workspace = true, default-features = false }
 zeroize = { workspace = true, default-features = false }
 
 [dev-dependencies]
@@ -32,11 +33,11 @@ rmp-serde = "1.0"
 rand_core = "0.6.4"
 
 [features]
-default = [ "std", "parallel" ]
+default = [ "std", "parallel", "serde" ]
 
 no_std = [ "zeroize/alloc" ]
-std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "dock_crypto_utils/std", "serde/std", "zeroize/std" ]
+std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "dock_crypto_utils/std", "serde?/std", "zeroize/std" ]
 
 print-trace = [ "ark-std/print-trace", "dock_crypto_utils/print-trace" ]
 parallel = [ "std", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel", "rayon", "dock_crypto_utils/parallel" ]
-#with-serde = ["serde", "serde_with", "dock_crypto_utils/with-serde"]
+serde = ["dep:serde", "serde_with", "dock_crypto_utils/serde"]

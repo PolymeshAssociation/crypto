@@ -1,19 +1,19 @@
 use crate::{
     concat_slices, hashing_utils::affine_group_elem_from_try_and_incr, msm::WindowTable,
-    serde_utils::ArkObjectBytes,
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_into_iter, vec::Vec};
 use digest::Digest;
-use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+
+#[cfg(feature = "serde")]
+use crate::serde_utils::ArkObjectBytes;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 /// A Pedersen commitment key `(g, h)`. The Pedersen commitment will be `g * m + h * r` with opening `(m, r)`
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
     Clone,
     Copy,
@@ -22,13 +22,12 @@ use rayon::prelude::*;
     Debug,
     CanonicalSerialize,
     CanonicalDeserialize,
-    Serialize,
-    Deserialize,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PedersenCommitmentKey<G: AffineRepr> {
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub g: G,
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub h: G,
 }
 

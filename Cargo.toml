@@ -44,7 +44,8 @@ ark-groth16 = { version = "^0.4.0", default-features = false }
 rayon = { version = "1", default-features = false }
 digest = { version = "0.10", default-features = false, features = ["alloc"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
-serde_with = { version = "1.10.0", default-features = false, features = ["macros"] }
+serde_with = { version = "3.14.0", default-features = false, features = ["macros", "alloc"] }
+cfg_eval = { version = "0.1.2", default-features = false }
 zeroize = { version = "1.7.0", default-features = false, features = ["derive"] }
 blake2 = { version = "0.10", default-features = false }
 ark-bls12-381 = { version = "^0.4.0", default-features = false, features = [ "curve" ] }

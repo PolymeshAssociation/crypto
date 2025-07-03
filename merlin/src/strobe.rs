@@ -3,17 +3,18 @@
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate,
 };
+use ark_std::{io::{Read, Write}, vec::Vec};
+#[cfg(feature = "serde")]
 use ark_std::{
     fmt,
-    io::{Read, Write},
     marker::PhantomData,
     mem::MaybeUninit,
     ptr,
-    vec::Vec,
 };
 use core::ops::{Deref, DerefMut};
 
 use keccak;
+#[cfg(feature = "serde")]
 use serde::{
     de::{Error, SeqAccess, Visitor},
     ser::SerializeTuple,
@@ -46,7 +47,8 @@ pub struct AlignedKeccakState(pub [u8; 200]);
 /// A Strobe context for the 128-bit security level.
 ///
 /// Only `meta-AD`, `AD`, `KEY`, and `PRF` operations are supported.
-#[derive(Clone, Zeroize, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize)]
+#[derive(Clone, Zeroize, CanonicalSerialize, CanonicalDeserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Strobe128 {
     pub state: AlignedKeccakState,
     pub pos: u8,
@@ -225,6 +227,7 @@ impl CanonicalDeserialize for AlignedKeccakState {
     }
 }
 
+#[cfg(feature = "serde")]
 impl Serialize for AlignedKeccakState {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -238,6 +241,7 @@ impl Serialize for AlignedKeccakState {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for AlignedKeccakState {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -250,10 +254,12 @@ impl<'de> Deserialize<'de> for AlignedKeccakState {
     }
 }
 
+#[cfg(feature = "serde")]
 struct ArrayVisitor<'de> {
     _phantom: PhantomData<&'de [u8; 200]>,
 }
 
+#[cfg(feature = "serde")]
 impl<'de> Visitor<'de> for ArrayVisitor<'de> {
     type Value = [u8; 200];
 

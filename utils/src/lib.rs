@@ -19,6 +19,7 @@ pub mod aliases;
 pub mod extend_some;
 // TODO: Feature gate this
 #[macro_use]
+#[cfg(feature = "serde")]
 pub mod serde_utils;
 pub mod ecies;
 

@@ -20,10 +20,9 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{io::Write, vec::Vec};
 use dock_crypto_utils::{
     pair_g1_g2, pair_g2_g1, randomized_pairing_check::RandomizedPairingChecker,
-    serde_utils::ArkObjectBytes,
 };
-use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+#[cfg(feature = "serde")]
+use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 macro_rules! impl_protocol {
@@ -32,7 +31,7 @@ macro_rules! impl_protocol {
             $protocol: ident, $proof: ident, $witness_group: path, $other_group: path, $other_group_prepared: path, $pairing: tt) => {
 
             $(#[$protocol_doc])*
-            #[serde_as]
+            #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
             #[derive(
                 Default,
                 Clone,
@@ -41,32 +40,32 @@ macro_rules! impl_protocol {
                 Debug,
                 CanonicalSerialize,
                 CanonicalDeserialize,
-                Serialize,
-                Deserialize,
                 Zeroize,
                 ZeroizeOnDrop,
             )]
+            #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
             pub struct $protocol<E: Pairing> {
                 /// Commitment to randomness
                 #[zeroize(skip)]
-                #[serde_as(as = "ArkObjectBytes")]
+                #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
                 pub t: PairingOutput<E>,
                 /// Randomness chosen by the prover
-                #[serde_as(as = "ArkObjectBytes")]
+                #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
                 blinding: $witness_group,
                 /// Prover's secret
-                #[serde_as(as = "ArkObjectBytes")]
+                #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
                 witness: $witness_group,
             }
 
-            #[serde_as]
+            #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
             #[derive(
-                Default, Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+                Default, Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize,
             )]
+            #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
             pub struct $proof<E: Pairing> {
-                #[serde_as(as = "ArkObjectBytes")]
+                #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
                 pub t: PairingOutput<E>,
-                #[serde_as(as = "ArkObjectBytes")]
+                #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
                 pub response: $witness_group,
             }
 

@@ -19,15 +19,17 @@ ark-poly = { workspace = true, default-features = false }
 ark-serialize = { workspace = true, default-features = false }
 zeroize = { workspace = true, default-features = false }
 digest = { workspace = true, default-features = false }
-serde = { workspace = true, default-features = false }
-serde_with = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false, optional = true }
+serde_with = { workspace = true, default-features = false, optional = true }
+cfg_eval = { workspace = true, default-features = false }
 rayon = { workspace = true, default-features = false, optional = true }
 merlin = { package = "dock_merlin", version = "3.0.0", default-features = false, path = "../merlin" }
 itertools = { workspace = true, default-features = false }
 num = { version = "0.4.1", default-features = false }
 hkdf = { version = "0.12.3", default-features = false}
 sha2 = { version = "0.10.8", default-features = false}
-aead = {version = "0.5.2", default-features = false, features = [ "alloc" ]}
+aead = { version = "0.5.2", default-features = false, features = [ "alloc" ]}
+integer-sqrt = { version = "0.1.5", default-features = false }
 
 [dev-dependencies]
 blake2 = { workspace = true, default-features = false }
@@ -37,11 +39,11 @@ ark-secp256r1 = { workspace = true, default-features = false }
 ark-std = { workspace = true, features = ["getrandom"] }
 
 [features]
-default = ["std", "parallel"]
+default = ["std", "parallel", "serde"]
 
 no_std = ["zeroize/alloc"]
-std = ["ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "serde/std", "ark-poly/std", "merlin/std", "num/std", "hkdf/std", "sha2/std", "chacha20poly1305/std", "zeroize/std"]
+std = ["ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "serde?/std", "ark-poly/std", "merlin/std", "num/std", "hkdf/std", "sha2/std", "chacha20poly1305/std", "zeroize/std"]
 
 print-trace = ["ark-std/print-trace"]
 parallel = ["std", "ark-ff/parallel", "ark-ec/parallel", "ark-poly/parallel", "ark-std/parallel", "rayon"]
-#with-serde = ["serde", "serde_with"]
+serde = ["dep:serde", "serde_with", "merlin/serde"]

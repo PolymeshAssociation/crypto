@@ -16,9 +16,10 @@ ark-r1cs-std.workspace = true
 ark-relations.workspace = true
 ark-groth16.workspace = true
 digest.workspace = true
-rayon = {workspace = true, optional = true}
-serde.workspace = true
-serde_with.workspace = true
+rayon = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_with = { workspace = true, optional = true }
+cfg_eval = { workspace = true, default-features = false }
 zeroize.workspace = true
 dock_crypto_utils = { version = "0.22.0", default-features = false, path = "../utils" }
 legogroth16 = { version = "0.17.0", default-features = false, features = ["aggregation"], path = "../legogroth16" }
@@ -33,7 +34,9 @@ proof_system = { path = "../proof_system" }
 bbs_plus = { path = "../bbs_plus" }
 
 [features]
-default = [ "parallel" ]
+default = [ "parallel", "serde" ]
 std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "ark-groth16/std", "legogroth16/std", "ark-r1cs-std/std", "ark-relations/std", "merlin/std"]
 print-trace = [ "ark-std/print-trace" ]
 parallel = [ "std", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel", "ark-groth16/parallel", "rayon", "ark-r1cs-std/parallel", "legogroth16/parallel" ]
+
+serde = ["dep:serde", "serde_with"]

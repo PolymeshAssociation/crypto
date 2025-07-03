@@ -33,10 +33,9 @@ use ark_std::{fmt::Debug, io::Write, ops::Neg, rand::RngCore, vec::Vec, UniformR
 use core::mem;
 use dock_crypto_utils::{
     commitment::PedersenCommitmentKey, randomized_mult_checker::RandomizedMultChecker,
-    serde_utils::ArkObjectBytes,
 };
-use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+#[cfg(feature = "serde")]
+use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Protocol to prove inequality of discrete log (committed in a Pedersen commitment) with either a
@@ -56,13 +55,14 @@ pub struct DiscreteLogInequalityProtocol<G: AffineRepr> {
 }
 
 /// Proof created using `DiscreteLogInequalityProtocol`
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
-    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InequalityProof<G: AffineRepr> {
     /// `B = G * (m - v) * a`
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub b: G,
     /// For proving knowledge of `m` and `r` in `C = G * m + H * r`
     pub sc_c: PokPedersenCommitment<G>,
@@ -383,13 +383,14 @@ pub struct UnknownDiscreteLogInequalityProtocol<G: AffineRepr> {
 }
 
 /// Proof created using `UnknownDiscreteLogInequalityProtocol`
-#[serde_as]
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
-    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize, Serialize, Deserialize,
+    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize,
 )]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnknownDiscreteLogInequalityProof<G: AffineRepr> {
     /// `c = (H * x - Z) * r`
-    #[serde_as(as = "ArkObjectBytes")]
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub c: G,
     /// For proving knowledge of `alpha` and `beta` in `c = H * alpha - Z * beta`
     pub sc_c: PokPedersenCommitment<G>,
