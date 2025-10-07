@@ -6,6 +6,8 @@ use ark_std::{
     vec::Vec,
     UniformRand,
 };
+use hashbrown::{HashMap, hash_map::Entry};
+use ahash::RandomState;
 
 /// Represents a scalar multiplication check of the form `G1 * a1 + G2 * a2 + G3 * a3 + ... = T`.
 /// Several checks can be added of forms either `G1 * a1 = T1` or `G1 * a1 + H1 * b1 = T2` or `G1 * a1 + H1 * b1 + J1 * c1 = T3`
@@ -18,21 +20,20 @@ use ark_std::{
 /// The single check above is simplified by combining terms of `G1`, `H1`, etc to reduce the size of the multi-scalar multiplication
 #[derive(Debug, Clone)]
 pub struct RandomizedMultChecker<G: AffineRepr> {
-    // map is more expensive than a vector (checked with a test)
-    // args: BTreeMap<SortableAffine<G>, G::ScalarField>,
-    /// Verification will expect the multi-scalar multiplication of first and second vector to be one.
-    args: (Vec<G>, Vec<G::ScalarField>),
+    /// Verification will expect the multi-scalar multiplication of key-value pairs to be one.
+    /// x-coordinate -> (scalar, point, y-coordinate)
+    // This trick is taken from halo2 code (MSM) but keeping both the point and y coordinate in value since there is no way to convert back from x, y coordinates for AffineRepr
+    pub args: HashMap<G::BaseField, (G::ScalarField, G, G::BaseField), RandomState>,
     /// The random value chosen during creation
-    random: G::ScalarField,
+    pub random: G::ScalarField,
     /// The random value to be used for current check. After each check, set `current_random = current_random * random`
-    current_random: G::ScalarField,
+    pub current_random: G::ScalarField,
 }
 
 impl<G: AffineRepr> RandomizedMultChecker<G> {
     pub fn new(random: G::ScalarField) -> Self {
         Self {
-            // args: BTreeMap::new(),
-            args: (Vec::new(), Vec::new()),
+            args: HashMap::with_hasher(RandomState::new()),
             random,
             current_random: G::ScalarField::one(),
         }
@@ -46,7 +47,7 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
     pub fn add_1(&mut self, p: G, s: &G::ScalarField, t: G) {
         self.add(p, self.current_random * s);
         self.add(t, -self.current_random);
-        self.current_random *= self.random;
+        self.update_random();
     }
 
     /// Add a check of the form `p1 * s1 + p2 * s2 = t`. Converts it to `p1 * s1 * r + p2 * s2 * r - t * r = 0` where `r` is the current randomness.
@@ -54,7 +55,7 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
         self.add(p1, self.current_random * s1);
         self.add(p2, self.current_random * s2);
         self.add(t, -self.current_random);
-        self.current_random *= self.random;
+        self.update_random();
     }
 
     /// Add a check of the form `p1 * s1 + p2 * s2 + p3 * s3 = t`. Converts it to `p1 * s1 * r + p2 * s2 * r + p3 * s3 * r - t * r = 0` where `r` is the current randomness.
@@ -72,7 +73,7 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
         self.add(p2, self.current_random * s2);
         self.add(p3, self.current_random * s3);
         self.add(t, -self.current_random);
-        self.current_random *= self.random;
+        self.update_random();
     }
 
     /// Add a check of the form `<a, b> = t`. Expects `a` and `b` to be of the same length
@@ -86,64 +87,58 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
             self.add(a_i, self.current_random * b_i);
         }
         self.add(t, -self.current_random);
-        self.current_random *= self.random;
+        self.update_random();
     }
 
     /// Combine all the checks into a multi-scalar multiplication and return true if the result is 0.
     pub fn verify(&self) -> bool {
-        debug_assert_eq!(self.args.0.len(), self.args.1.len());
-        G::Group::msm_unchecked(&self.args.0, &self.args.1).is_zero()
+        let (points, scalars) = self.points_and_scalars_for_msm();
+        G::Group::msm_unchecked(&points, &scalars).is_zero()
     }
 
     pub fn len(&self) -> usize {
-        self.args.0.len()
+        self.args.len()
     }
 
-    fn add(&mut self, p: G, s: G::ScalarField) {
-        // If the point already exists, update the scalar corresponding to the point
-        if let Some(i) = self.args.0.iter().position(|&p_i| p_i == p) {
-            self.args.1[i] = self.args.1[i] + s;
-        } else {
-            self.args.0.push(p);
-            self.args.1.push(s);
+    pub fn points_and_scalars_for_msm(&self) -> (Vec<G>, Vec<G::ScalarField>){
+        let mut points = Vec::with_capacity(self.len());
+        let mut scalars = Vec::with_capacity(self.len());
+        for (_, (s, point, _)) in self.args.iter() {
+            points.push(*point);
+            scalars.push(*s);
+        }
+        (points, scalars)
+    }
+
+    pub fn update_random(&mut self) {
+        self.current_random *= self.random;
+    }
+
+    #[inline(always)]
+    pub fn add(&mut self, p: G, s: G::ScalarField) {
+        if p.is_zero() {
+            return;
+        }
+
+        // unwrap is fine as point is not at infinity
+        let (p_x, p_y) = p.xy().unwrap();
+
+        match self.args.entry(*p_x) {
+            Entry::Occupied(mut entry) => {
+                let (old_scalar, point, y) = entry.get_mut();
+                if y == p_y {
+                    *old_scalar += s;
+                } else {
+                    *old_scalar -= s;
+                    debug_assert_eq!(point.into_group(), -p.into_group());
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert((s, p, *p_y));
+            }
         }
     }
-
-    // fn add(&mut self, p: G, s: G::ScalarField) {
-    //     let sortable_p = SortableAffine(p);
-    //     let val = self.args.remove(&sortable_p);
-    //     if let Some(v) = val {
-    //         self.args.insert(sortable_p, v + s);
-    //     } else {
-    //         self.args.insert(sortable_p, s);
-    //     }
-    // }
-    //
-    // pub fn verify(self) -> bool {
-    //     let mut b = vec![];
-    //     let mut s = vec![];
-    //     for (k, v) in self.args.into_iter() {
-    //         b.push(k.0);
-    //         s.push(v);
-    //     }
-    //     G::Group::msm_unchecked(&b, &s).is_zero()
-    // }
 }
-
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct SortableAffine<G: AffineRepr>(G);
-//
-// impl<G: AffineRepr> Ord for SortableAffine<G> {
-//     fn cmp(&self, other: &Self) -> Ordering {
-//         self.0.x().cmp(&other.0.x())
-//     }
-// }
-//
-// impl<G: AffineRepr> PartialOrd for SortableAffine<G> {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
 
 #[cfg(test)]
 mod test {
@@ -277,6 +272,20 @@ mod test {
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
         checker.add_many([g3, h3], [&a3, &a6], c8);
         checker.add_many([g1, g2, g3], [&a1, &a2, &a3], c9);
+        assert!(checker.verify());
+
+        let minus_g1 = -g1;
+        let minus_g2 = -g2;
+        let c1 = (g1 * a1).into_affine();
+        let c2 = (minus_g1 * a2).into_affine();
+        let c3 = (g2 * a3).into_affine();
+        let c4 = (minus_g2 * a4).into_affine();
+
+        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
+        checker.add_1(g1, &a1, c1);
+        checker.add_1(minus_g1, &a2, c2);
+        checker.add_1(g2, &a3, c3);
+        checker.add_1(minus_g2, &a4, c4);
         assert!(checker.verify());
     }
 

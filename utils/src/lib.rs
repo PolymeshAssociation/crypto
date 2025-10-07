@@ -40,7 +40,7 @@ pub mod macros;
 pub mod misc;
 /// Multiscalar multiplication (MSM) like Fixed Base MSM
 pub mod msm;
-pub mod owned_pairs;
+// pub mod owned_pairs;
 pub mod pairs;
 /// Polynomial utilities like multiplying polynomials, creating polynomial from roots, etc
 pub mod poly;
