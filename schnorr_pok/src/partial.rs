@@ -17,6 +17,7 @@ use ark_std::{
 use dock_crypto_utils::{
     expect_equality, randomized_mult_checker::RandomizedMultChecker
 };
+use zeroize::Zeroize;
 #[cfg(feature = "serde")]
 use dock_crypto_utils::serde_utils::ArkObjectBytes;
 #[cfg(feature = "serde")]
@@ -128,12 +129,13 @@ impl<G: AffineRepr> SchnorrCommitment<G> {
         challenge: &G::ScalarField,
     ) -> Result<PartialSchnorrResponse<G>, SchnorrError> {
         let mut responses = BTreeMap::new();
-        for (i, w) in witnesses {
+        for (i, mut w) in witnesses {
             let b = self
                 .blindings
                 .get(i)
                 .ok_or_else(|| SchnorrError::MissingBlindingAtIndex(i))?;
             responses.insert(i, w * challenge + b);
+            Zeroize::zeroize(&mut w);
         }
         Ok(PartialSchnorrResponse {
             responses,

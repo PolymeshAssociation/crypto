@@ -1,8 +1,7 @@
+use ahash::RandomState;
 use alloc::string::ToString;
 use ark_ec::Group;
-use ark_std::collections::BTreeMap;
-#[cfg(not(feature = "std"))]
-use integer_sqrt::IntegerSquareRoot;
+use hashbrown::HashMap;
 
 /// Solve discrete log using brute force.
 /// `max` is the maximum value of the discrete log and this returns `x` such that `1 <= x <= max` and `base * x = target`
@@ -27,10 +26,7 @@ pub fn solve_discrete_log_brute_force<G: Group>(max: u64, base: G, target: G) ->
 /// `max` is of type u64 but only accurate till a 52 bit value since 12 bit precision is lost while taking square root.
 pub fn solve_discrete_log_bsgs<G: Group>(max: u64, base: G, target: G) -> Option<u64> {
     // Will lose 12 bits of precision
-    #[cfg(feature = "std")]
     let m = (max as f64).sqrt().ceil() as u64;
-    #[cfg(not(feature = "std"))]
-    let m = max.integer_sqrt();
     solve_discrete_log_bsgs_inner(m, m, base, target)
 }
 
@@ -40,10 +36,7 @@ pub fn solve_discrete_log_bsgs<G: Group>(max: u64, base: G, target: G) -> Option
 /// `max` is of type u64 but only accurate till a 52 bit value since 12 bit precision is lost while taking square root.
 pub fn solve_discrete_log_bsgs_alt<G: Group>(max: u64, base: G, target: G) -> Option<u64> {
     // Will lose 12 bits of precision
-    #[cfg(feature = "std")]
     let m = (max as f64 / 2.0).sqrt().ceil() as u64;
-    #[cfg(not(feature = "std"))]
-    let m = max.integer_sqrt();
     solve_discrete_log_bsgs_inner(m, 2 * m, base, target)
 }
 
@@ -60,7 +53,7 @@ fn solve_discrete_log_bsgs_inner<G: Group>(
         return Some(0);
     }
     // Create a map of `base * i -> i` for `i` in `[1, num_baby_steps]`
-    let mut baby_steps = BTreeMap::new();
+    let mut baby_steps = HashMap::with_hasher(RandomState::new());
     baby_steps.insert(base.to_string(), 1);
     let mut cur = base;
     for i in 2..=num_baby_steps {
