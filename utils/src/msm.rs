@@ -1,71 +1,14 @@
-use ark_ec::{scalar_mul::fixed_base::FixedBase, CurveGroup};
-use ark_ff::PrimeField;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{fmt::Debug, ops::Mul, vec::Vec};
+use ark_ec::{CurveGroup, scalar_mul::BatchMulPreprocessing};
+use ark_std::vec::Vec;
 
-#[cfg(feature = "serde")]
-use crate::serde_utils::ArkObjectBytes;
-
-/// Use when same elliptic curve point is to be multiplied by several scalars.
-#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize,
-)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct WindowTable<G: CurveGroup> {
-    scalar_size: usize,
-    window_size: usize,
-    outerc: usize,
-    #[cfg_attr(feature = "serde", serde_as(as = "Vec<Vec<ArkObjectBytes>>"))]
-    table: Vec<Vec<G::Affine>>,
-}
-
-impl<G: CurveGroup> WindowTable<G> {
-    /// Create new table for `group_elem`. `num_multiplications` is the number of multiplication that
-    /// need to be done and it can be an approximation as it does not impact correctness but only performance.
-    pub fn new(num_multiplications: usize, group_elem: G) -> Self {
-        let scalar_size = G::ScalarField::MODULUS_BIT_SIZE as usize;
-        let window_size = FixedBase::get_mul_window_size(num_multiplications);
-        let outerc = (scalar_size + window_size - 1) / window_size;
-        let table = FixedBase::get_window_table(scalar_size, window_size, group_elem);
-        Self {
-            scalar_size,
-            window_size,
-            outerc,
-            table,
-        }
-    }
-
-    /// Multiply with a single scalar
-    pub fn multiply(&self, element: &G::ScalarField) -> G {
-        FixedBase::windowed_mul(self.outerc, self.window_size, &self.table, element)
-    }
-
-    /// Multiply with a many scalars
-    pub fn multiply_many(&self, elements: &[G::ScalarField]) -> Vec<G> {
-        FixedBase::msm(self.scalar_size, self.window_size, &self.table, elements)
-    }
-
-    pub fn window_size(num_multiplications: usize) -> usize {
-        FixedBase::get_mul_window_size(num_multiplications)
-    }
-}
-
-impl<G: CurveGroup> Mul<&G::ScalarField> for &WindowTable<G> {
-    type Output = G;
-
-    fn mul(self, rhs: &G::ScalarField) -> Self::Output {
-        FixedBase::windowed_mul(self.outerc, self.window_size, &self.table, rhs)
-    }
-}
-
-/// The same group element is multiplied by each in `elements` using a window table
+/// Multiply the same group element by multiple field elements using efficient batch processing
 pub fn multiply_field_elems_with_same_group_elem<G: CurveGroup>(
     group_elem: G,
     elements: &[G::ScalarField],
 ) -> Vec<G> {
-    let table = WindowTable::new(elements.len(), group_elem);
-    table.multiply_many(elements)
+    let preprocessing = BatchMulPreprocessing::new(group_elem, elements.len());
+    let results = preprocessing.batch_mul(elements);
+    results.into_iter().map(|x| G::from(x)).collect()
 }
 
 #[cfg(test)]
@@ -73,7 +16,7 @@ pub mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
-    use ark_bls12_381::{Bls12_381, G1Affine};
+    use ark_bls12_381::{Bls12_381, Fr, G1Affine};
     use ark_ec::{
         pairing::Pairing, scalar_mul::wnaf::WnafContext, AffineRepr, CurveGroup, VariableBaseMSM,
     };
@@ -83,12 +26,12 @@ pub mod tests {
         rand::{rngs::StdRng, SeedableRng},
         UniformRand,
     };
+    use ark_serialize::CanonicalSerialize;
     use ark_pallas::Affine as PallasAffine;
 
     #[cfg(feature = "parallel")]
     use rayon::prelude::*;
 
-    type Fr = <Bls12_381 as Pairing>::ScalarField;
     type G1 = <Bls12_381 as Pairing>::G1;
     type G2 = <Bls12_381 as Pairing>::G2;
 
@@ -369,10 +312,7 @@ pub mod tests {
         let count = 10;
 
         let start = Instant::now();
-        let scalar_size = Fr::MODULUS_BIT_SIZE as usize;
-        let window_size = FixedBase::get_mul_window_size(count);
-        let outerc = (scalar_size + window_size - 1) / window_size;
-        let table = FixedBase::get_window_table(scalar_size, window_size, g);
+        let preprocessing = BatchMulPreprocessing::new(g, count);
         d15 += start.elapsed();
 
         let g = g.into_affine();
@@ -380,7 +320,8 @@ pub mod tests {
             let e = Fr::rand(&mut rng);
 
             let start = Instant::now();
-            let temp = FixedBase::windowed_mul::<G1>(outerc, window_size, &table, &e);
+            let scalars = vec![e];
+            let temp = preprocessing.batch_mul(&scalars)[0];
             d15 += start.elapsed();
 
             let start = Instant::now();

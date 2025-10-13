@@ -102,7 +102,6 @@ impl<G: AffineRepr, const KEY_BYTE_SIZE: usize, const NONCE_BYTE_SIZE: usize>
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use ark_bls12_381::{G1Affine, G2Affine};
     use ark_ec::CurveGroup;
     use ark_std::{
         rand::{rngs::StdRng, SeedableRng},
@@ -130,7 +129,7 @@ pub mod tests {
             assert_eq!(decrypted_r, r);
         }
 
-        check::<G1Affine>(&mut rng);
-        check::<G2Affine>(&mut rng);
+        check::<ark_bls12_381::G1Affine>(&mut rng);
+        check::<ark_bls12_381::G2Affine>(&mut rng);
     }
 }

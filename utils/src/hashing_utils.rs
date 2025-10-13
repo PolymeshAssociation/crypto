@@ -54,7 +54,8 @@ pub fn field_elem_from_try_and_incr<F: Field, D: Digest>(bytes: &[u8]) -> F {
 /// separation tag.
 pub fn hash_to_field<F: Field, D: FullDigest>(dst: &[u8], seed: &[u8]) -> F {
     let hasher = <DefaultFieldHasher<D> as HashToField<F>>::new(dst);
-    hasher.hash_to_field(seed, 1).pop().unwrap()
+    let result: [F; 1] = hasher.hash_to_field(seed);
+    result[0]
 }
 
 /// Hash given bytes `seed` to `count` number of field element using constant time operations where `dst` is the domain
@@ -68,6 +69,9 @@ pub fn hash_to_field_many<F: Field, D: FullDigest + SyncIfParallel>(
     let hasher = <DefaultFieldHasher<D> as HashToField<F>>::new(dst);
     le_bytes_iter(count)
         .map(|ctr| concat_slices!(seed, ctr))
-        .map(|seed| hasher.hash_to_field(&seed, 1).pop().unwrap())
+        .map(|seed| {
+            let result: [F; 1] = hasher.hash_to_field(&seed);
+            result[0]
+        })
         .collect()
 }

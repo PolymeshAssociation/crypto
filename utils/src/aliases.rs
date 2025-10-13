@@ -13,8 +13,8 @@ impl<I, T: ExactSizeIterator<Item = I> + DoubleEndedIterator<Item = I>> DoubleEn
 }
 
 /// Marks a type that implements `DynDigest + Default + Clone`.
-pub trait FullDigest: DynDigest + Default + Clone {}
-impl<T: DynDigest + Default + Clone> FullDigest for T {}
+pub trait FullDigest: DynDigest + Default + Clone + FixedOutputReset {}
+impl<T: DynDigest + Default + Clone + FixedOutputReset> FullDigest for T {}
 
 /// `Send` if the `parallel` feature enabled
 #[cfg(feature = "parallel")]

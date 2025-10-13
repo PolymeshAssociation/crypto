@@ -1,6 +1,6 @@
 use ark_ec::{
     pairing::{MillerLoopOutput, Pairing, PairingOutput},
-    AffineRepr, Group,
+    AffineRepr, PrimeGroup,
 };
 use ark_ff::{One, PrimeField, Zero};
 use ark_std::{cfg_iter, ops::MulAssign, rand::Rng, vec, vec::Vec, UniformRand};

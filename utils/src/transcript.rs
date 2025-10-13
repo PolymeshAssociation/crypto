@@ -254,7 +254,7 @@ impl Write for MerlinTranscript {
 mod test {
     use super::*;
     use ark_bls12_381::{Fr, G1Projective};
-    use ark_ec::Group;
+    use ark_ec::PrimeGroup;
 
     #[test]
     fn transcript() {

@@ -13,10 +13,21 @@ doctest = false
 path = "src/lib.rs"
 
 [dependencies]
-ark-serialize = { workspace = true, default-features = false }
-ark-ff = { workspace = true, default-features = false }
-ark-ec = { workspace = true, default-features = false }
-ark-std = { workspace = true, default-features = false }
+#ark-serialize = { workspace = true, default-features = false }
+#ark-ff = { workspace = true, default-features = false }
+#ark-ec = { workspace = true, default-features = false }
+#ark-std = { workspace = true, default-features = false }
+
+ark-ff = { version = "^0.5.0", default-features = false }
+ark-ec = { version = "^0.5.0", default-features = false }
+ark-std = { version = "^0.5.0", default-features = false }
+ark-serialize = { version = "^0.5.0", default-features = false, features = [ "derive" ] }
+
+#ark-ff = { path = "../../arkworks-algebra/ff", default-features = false }
+#ark-ec = { path = "../../arkworks-algebra/ec", default-features = false }
+#ark-serialize = { path = "../../arkworks-algebra/serialize", default-features = false, features = [ "derive" ] }
+#ark-std = { path = "../../../arkworks/std", default-features = false }
+
 rayon = { workspace = true, default-features = false, optional = true}
 digest = { workspace = true, default-features = false }
 dock_crypto_utils = { version = "0.22.0", default-features = false, path = "../utils" }
@@ -27,7 +38,7 @@ zeroize = { workspace = true, default-features = false }
 
 [dev-dependencies]
 blake2 = { workspace = true, default-features = false }
-ark-bls12-381 = { workspace = true, default-features = false }
+ark-bls12-381 = { version = "^0.5.0", default-features = false, features = ["curve"] }
 serde_json = "1.0"
 rmp-serde = "1.0"
 rand_core = "0.6.4"

@@ -123,10 +123,10 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
         // unwrap is fine as point is not at infinity
         let (p_x, p_y) = p.xy().unwrap();
 
-        match self.args.entry(*p_x) {
+        match self.args.entry(p_x) {
             Entry::Occupied(mut entry) => {
                 let (old_scalar, point, y) = entry.get_mut();
-                if y == p_y {
+                if *y == p_y {
                     *old_scalar += s;
                 } else {
                     *old_scalar -= s;
@@ -134,7 +134,7 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
                 }
             }
             Entry::Vacant(entry) => {
-                entry.insert((s, p, *p_y));
+                entry.insert((s, p, p_y));
             }
         }
     }
@@ -145,12 +145,12 @@ mod test {
     use super::*;
     use ark_bls12_381::{Fr, G1Affine};
     use ark_ec::CurveGroup;
-    use ark_std::{rand::rngs::OsRng, UniformRand};
+    use ark_std::{rand::rngs::StdRng, rand::SeedableRng, UniformRand};
     use std::time::Instant;
 
     #[test]
     fn basic() {
-        let mut rng = OsRng::default();
+        let mut rng = StdRng::seed_from_u64(0u64);
         let g1 = G1Affine::rand(&mut rng);
         let g2 = G1Affine::rand(&mut rng);
         let g3 = G1Affine::rand(&mut rng);
@@ -291,7 +291,7 @@ mod test {
 
     #[test]
     fn timing_comparison() {
-        let mut rng = OsRng::default();
+        let mut rng = StdRng::seed_from_u64(0u64);
 
         for i in [40, 60, 80, 100] {
             let g = (0..i).map(|_| G1Affine::rand(&mut rng)).collect::<Vec<_>>();

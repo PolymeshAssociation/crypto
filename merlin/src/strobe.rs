@@ -4,6 +4,7 @@ use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate,
 };
 use ark_std::{io::{Read, Write}, vec::Vec};
+
 #[cfg(feature = "serde")]
 use ark_std::{
     fmt,

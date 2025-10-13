@@ -18,8 +18,15 @@ exclude = [".travis.yml", ".gitignore"]
 features = ["nightly"]
 
 [dependencies]
-ark-serialize = { workspace = true, default-features = false }
-ark-std = { workspace = true, default-features = false }
+# ark-serialize = { workspace = true, default-features = false }
+# ark-std = { workspace = true, default-features = false }
+
+ark-serialize = { version = "^0.5.0", default-features = false, features = [ "derive" ] }
+
+#ark-serialize = { path = "../../arkworks-algebra/serialize", default-features = false, features = [ "derive" ] }
+#ark-std = { path = "../../../arkworks/std", default-features = false }
+ark-std = { version = "0.5.0", default-features = false }
+
 zeroize = { workspace = true, default-features = false }
 serde = { workspace = true, default-features = false, optional = true }
 keccak = { version = "0.1.0", default-features = false }

@@ -5,9 +5,10 @@
 //! 3. A more efficient, batched hashed Elgamal where multiple messages, each being a field element, are encrypted for the same public key.  
 
 use crate::{
-    aliases::FullDigest, hashing_utils::hash_to_field, msm::WindowTable,
+    aliases::FullDigest, hashing_utils::hash_to_field,
 };
 use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::scalar_mul::BatchMulPreprocessing;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_iter, ops::Neg, rand::RngCore, vec::Vec, UniformRand};
@@ -34,7 +35,7 @@ impl<F: PrimeField> SecretKey<F> {
 }
 
 impl<G: AffineRepr> PublicKey<G> {
-    pub fn new(secret_key: &SecretKey<G::ScalarField>, gen: &G) -> Self {
+    pub fn new(secret_key: &SecretKey<<G as AffineRepr>::ScalarField>, gen: &G) -> Self {
         Self(gen.mul_bigint(secret_key.0.into_bigint()).into_affine())
     }
 }
@@ -43,7 +44,7 @@ impl<G: AffineRepr> PublicKey<G> {
 pub fn keygen<R: RngCore, G: AffineRepr>(
     rng: &mut R,
     gen: &G,
-) -> (SecretKey<G::ScalarField>, PublicKey<G>) {
+) -> (SecretKey<<G as AffineRepr>::ScalarField>, PublicKey<G>) {
     let sk = SecretKey::new(rng);
     let pk = PublicKey::new(&sk, gen);
     (sk, pk)
@@ -78,8 +79,8 @@ impl<G: AffineRepr> Ciphertext<G> {
         msg: &G,
         public_key: &G,
         gen: &G,
-    ) -> (Self, G::ScalarField) {
-        let randomness = G::ScalarField::rand(rng);
+    ) -> (Self, <G as AffineRepr>::ScalarField) {
+        let randomness = <G as AffineRepr>::ScalarField::rand(rng);
         (
             Self::new_given_randomness(msg, &randomness, public_key, gen),
             randomness,
@@ -90,15 +91,15 @@ impl<G: AffineRepr> Ciphertext<G> {
     /// `gen` is the generator used in the scheme to generate public key and ephemeral public key by sender/encryptor
     pub fn new_given_randomness(
         msg: &G,
-        randomness: &G::ScalarField,
+        randomness: &<G as AffineRepr>::ScalarField,
         public_key: &G,
         gen: &G,
     ) -> Self {
         let b = randomness.into_bigint();
-        let encrypted = (public_key.mul_bigint(b) + msg).into_affine();
+        let encrypted = (<G as AffineRepr>::mul_bigint(public_key, b) + msg.into_group()).into();
         Self {
             encrypted,
-            eph_pk: gen.mul_bigint(b).into_affine(),
+            eph_pk: <G as AffineRepr>::mul_bigint(gen, b).into(),
         }
     }
 
@@ -107,18 +108,18 @@ impl<G: AffineRepr> Ciphertext<G> {
     /// `gen` is the generator used in the scheme to generate public key and ephemeral public key by sender/encryptor
     pub fn new_given_randomness_and_window_tables(
         msg: &G,
-        randomness: &G::ScalarField,
-        public_key: &WindowTable<G::Group>,
-        gen: &WindowTable<G::Group>,
+        randomness: &<G as AffineRepr>::ScalarField,
+        public_key: &BatchMulPreprocessing<G::Group>,
+        gen: &BatchMulPreprocessing<G::Group>,
     ) -> Self {
-        let encrypted = ((public_key * randomness) + msg).into_affine();
+        let encrypted = ((public_key.batch_mul(&[*randomness])[0]) + msg).into_affine();
         Self {
             encrypted,
-            eph_pk: gen.multiply(randomness).into_affine(),
+            eph_pk: gen.batch_mul(&[*randomness])[0],
         }
     }
 
-    pub fn decrypt(&self, secret_key: &G::ScalarField) -> G {
+    pub fn decrypt(&self, secret_key: &<G as AffineRepr>::ScalarField) -> G {
         (self.eph_pk.mul(secret_key).neg() + self.encrypted).into_affine()
     }
 }
@@ -140,7 +141,7 @@ impl<G: AffineRepr> Ciphertext<G> {
 pub struct HashedElgamalCiphertext<G: AffineRepr> {
     /// `m + Hash(r * pk)`
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
-    pub encrypted: G::ScalarField,
+    pub encrypted: <G as AffineRepr>::ScalarField,
     /// Ephemeral public key `r * gen`
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub eph_pk: G,
@@ -151,11 +152,11 @@ impl<G: AffineRepr> HashedElgamalCiphertext<G> {
     /// `gen` is the generator used in the scheme to generate public key and ephemeral public key by sender/encryptor
     pub fn new<R: RngCore, D: FullDigest>(
         rng: &mut R,
-        msg: &G::ScalarField,
+        msg: &<G as AffineRepr>::ScalarField,
         public_key: &G,
         gen: &G,
-    ) -> (Self, G::ScalarField) {
-        let randomness = G::ScalarField::rand(rng);
+    ) -> (Self, <G as AffineRepr>::ScalarField) {
+        let randomness = <G as AffineRepr>::ScalarField::rand(rng);
         (
             Self::new_given_randomness::<D>(msg, &randomness, public_key, gen),
             randomness,
@@ -165,8 +166,8 @@ impl<G: AffineRepr> HashedElgamalCiphertext<G> {
     /// Returns the ciphertext
     /// `gen` is the generator used in the scheme to generate public key and ephemeral public key by sender/encryptor
     pub fn new_given_randomness<D: FullDigest>(
-        msg: &G::ScalarField,
-        randomness: &G::ScalarField,
+        msg: &<G as AffineRepr>::ScalarField,
+        randomness: &<G as AffineRepr>::ScalarField,
         public_key: &G,
         gen: &G,
     ) -> Self {
@@ -174,7 +175,7 @@ impl<G: AffineRepr> HashedElgamalCiphertext<G> {
         let shared_secret = public_key.mul_bigint(b).into_affine();
         Self {
             encrypted: Self::otp::<D>(shared_secret) + msg,
-            eph_pk: gen.mul_bigint(b).into_affine(),
+            eph_pk: <G as AffineRepr>::mul_bigint(gen, b).into(),
         }
     }
 
@@ -182,28 +183,28 @@ impl<G: AffineRepr> HashedElgamalCiphertext<G> {
     /// of encryptions have to be done using the same public key
     /// `gen` is the generator used in the scheme to generate public key and ephemeral public key by sender/encryptor
     pub fn new_given_randomness_and_window_tables<D: FullDigest>(
-        msg: &G::ScalarField,
-        randomness: &G::ScalarField,
-        public_key: &WindowTable<G::Group>,
-        gen: &WindowTable<G::Group>,
+        msg: &<G as AffineRepr>::ScalarField,
+        randomness: &<G as AffineRepr>::ScalarField,
+        public_key: &G,
+        gen: &G,
     ) -> Self {
-        let shared_secret = public_key.multiply(randomness).into_affine();
+        let shared_secret = <G as AffineRepr>::mul_bigint(public_key, randomness.into_bigint()).into_affine();
         Self {
             encrypted: Self::otp::<D>(shared_secret) + msg,
-            eph_pk: gen.multiply(randomness).into_affine(),
+            eph_pk: <G as AffineRepr>::mul_bigint(gen, randomness.into_bigint()).into_affine(),
         }
     }
 
-    pub fn decrypt<D: FullDigest>(&self, secret_key: &G::ScalarField) -> G::ScalarField {
+    pub fn decrypt<D: FullDigest>(&self, secret_key: &<G as AffineRepr>::ScalarField) -> <G as AffineRepr>::ScalarField {
         let shared_secret = self.eph_pk.mul(secret_key).into_affine();
         self.encrypted - Self::otp::<D>(shared_secret)
     }
 
     /// Return a OTP (One Time Pad) by hashing the shared secret.
-    pub fn otp<D: FullDigest>(shared_secret: G) -> G::ScalarField {
+    pub fn otp<D: FullDigest>(shared_secret: G) -> <G as AffineRepr>::ScalarField {
         let mut bytes = Vec::with_capacity(shared_secret.compressed_size());
         shared_secret.serialize_uncompressed(&mut bytes).unwrap();
-        hash_to_field::<G::ScalarField, D>(b"", &bytes)
+        hash_to_field::<<G as AffineRepr>::ScalarField, D>(b"", &bytes)
     }
 }
 
@@ -227,7 +228,7 @@ impl<G: AffineRepr> HashedElgamalCiphertext<G> {
 pub struct BatchedHashedElgamalCiphertext<G: AffineRepr> {
     /// `m_i + Hash((r * pk) || i)`
     #[cfg_attr(feature = "serde", serde_as(as = "Vec<ArkObjectBytes>"))]
-    pub encrypted: Vec<G::ScalarField>,
+    pub encrypted: Vec<<G as AffineRepr>::ScalarField>,
     /// Ephemeral public key `r * gen`
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub eph_pk: G,
@@ -238,11 +239,11 @@ impl<G: AffineRepr> BatchedHashedElgamalCiphertext<G> {
     /// `gen` is the generator used in the scheme to generate public key and ephemeral public key by sender/encryptor
     pub fn new<R: RngCore, D: FullDigest>(
         rng: &mut R,
-        msgs: &[G::ScalarField],
+        msgs: &[<G as AffineRepr>::ScalarField],
         public_key: &G,
         gen: &G,
-    ) -> (Self, G::ScalarField) {
-        let randomness = G::ScalarField::rand(rng);
+    ) -> (Self, <G as AffineRepr>::ScalarField) {
+        let randomness = <G as AffineRepr>::ScalarField::rand(rng);
         (
             Self::new_given_randomness::<D>(msgs, &randomness, public_key, gen),
             randomness,
@@ -252,8 +253,8 @@ impl<G: AffineRepr> BatchedHashedElgamalCiphertext<G> {
     /// Returns the ciphertext
     /// `gen` is the generator used in the scheme to generate public key and ephemeral public key by sender/encryptor
     pub fn new_given_randomness<D: FullDigest>(
-        msgs: &[G::ScalarField],
-        randomness: &G::ScalarField,
+        msgs: &[<G as AffineRepr>::ScalarField],
+        randomness: &<G as AffineRepr>::ScalarField,
         public_key: &G,
         gen: &G,
     ) -> Self {
@@ -261,7 +262,7 @@ impl<G: AffineRepr> BatchedHashedElgamalCiphertext<G> {
         let shared_secret = public_key.mul_bigint(b).into_affine();
         Self {
             encrypted: Self::enc_with_otp::<D>(&msgs, &shared_secret),
-            eph_pk: gen.mul_bigint(b).into_affine(),
+            eph_pk: <G as AffineRepr>::mul_bigint(gen, b).into(),
         }
     }
 
@@ -269,19 +270,19 @@ impl<G: AffineRepr> BatchedHashedElgamalCiphertext<G> {
     /// of encryptions have to be done using the same public key
     /// `gen` is the generator used in the scheme to generate public key and ephemeral public key by sender/encryptor
     pub fn new_given_randomness_and_window_tables<D: FullDigest>(
-        msgs: &[G::ScalarField],
-        randomness: &G::ScalarField,
-        public_key: &WindowTable<G::Group>,
-        gen: &WindowTable<G::Group>,
+        msgs: &[<G as AffineRepr>::ScalarField],
+        randomness: &<G as AffineRepr>::ScalarField,
+        public_key: &BatchMulPreprocessing<G::Group>,
+        gen: &BatchMulPreprocessing<G::Group>,
     ) -> Self {
-        let shared_secret = public_key.multiply(randomness).into_affine();
+        let shared_secret = public_key.batch_mul(&[*randomness])[0];
         Self {
             encrypted: Self::enc_with_otp::<D>(&msgs, &shared_secret),
-            eph_pk: gen.multiply(randomness).into_affine(),
+            eph_pk: gen.batch_mul(&[*randomness])[0],
         }
     }
 
-    pub fn decrypt<D: FullDigest>(&self, secret_key: &G::ScalarField) -> Vec<G::ScalarField> {
+    pub fn decrypt<D: FullDigest>(&self, secret_key: &<G as AffineRepr>::ScalarField) -> Vec<<G as AffineRepr>::ScalarField> {
         let shared_secret = self.eph_pk.mul(secret_key).into_affine();
         cfg_iter!(self.encrypted)
             .enumerate()
@@ -294,17 +295,17 @@ impl<G: AffineRepr> BatchedHashedElgamalCiphertext<G> {
     }
 
     /// Return a OTP (One Time Pad) by hashing the shared secret along with the message index.
-    pub fn otp<D: FullDigest>(shared_secret: &G, msg_idx: u32) -> G::ScalarField {
+    pub fn otp<D: FullDigest>(shared_secret: &G, msg_idx: u32) -> <G as AffineRepr>::ScalarField {
         let mut bytes = Vec::with_capacity(shared_secret.compressed_size());
         shared_secret.serialize_uncompressed(&mut bytes).unwrap();
         msg_idx.serialize_uncompressed(&mut bytes).unwrap();
-        hash_to_field::<G::ScalarField, D>(b"", &bytes)
+        hash_to_field::<<G as AffineRepr>::ScalarField, D>(b"", &bytes)
     }
 
     fn enc_with_otp<D: FullDigest>(
-        msgs: &[G::ScalarField],
+        msgs: &[<G as AffineRepr>::ScalarField],
         shared_secret: &G,
-    ) -> Vec<G::ScalarField> {
+    ) -> Vec<<G as AffineRepr>::ScalarField> {
         cfg_iter!(msgs)
             .enumerate()
             .map(|(i, m)| Self::otp::<D>(shared_secret, i as u32) + m)
@@ -348,7 +349,7 @@ pub mod tests {
             let gen = G::Group::rand(rng).into_affine();
             let (sk, pk) = keygen(rng, &gen);
 
-            let msg = G::ScalarField::rand(rng);
+            let msg = <G as AffineRepr>::ScalarField::rand(rng);
             let (ciphertext, _) =
                 HashedElgamalCiphertext::new::<_, Blake2b512>(rng, &msg, &pk.0, &gen);
             assert_eq!(ciphertext.decrypt::<Blake2b512>(&sk.0), msg);
@@ -368,7 +369,7 @@ pub mod tests {
             let count = 10;
 
             let msgs = (0..count)
-                .map(|_| G::ScalarField::rand(rng))
+                .map(|_| <G as AffineRepr>::ScalarField::rand(rng))
                 .collect::<Vec<_>>();
             let mut enc_time = Duration::default();
             let mut dec_time = Duration::default();
