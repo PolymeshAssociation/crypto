@@ -73,7 +73,7 @@ pub mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
-    use ark_bls12_381::Bls12_381;
+    use ark_bls12_381::{Bls12_381, G1Affine};
     use ark_ec::{
         pairing::Pairing, scalar_mul::wnaf::WnafContext, AffineRepr, CurveGroup, VariableBaseMSM,
     };
@@ -83,6 +83,7 @@ pub mod tests {
         rand::{rngs::StdRng, SeedableRng},
         UniformRand,
     };
+    use ark_pallas::Affine as PallasAffine;
 
     #[cfg(feature = "parallel")]
     use rayon::prelude::*;
@@ -90,6 +91,82 @@ pub mod tests {
     type Fr = <Bls12_381 as Pairing>::ScalarField;
     type G1 = <Bls12_381 as Pairing>::G1;
     type G2 = <Bls12_381 as Pairing>::G2;
+
+    use std::{
+        fmt::Debug,
+        iter::Sum,
+        ops::{Add, Div},
+    };
+
+    /// Prints the total, least, median, and the highest value of the given list
+    pub fn statistics<T, U>(mut values: Vec<T>) -> String
+    where
+        T: Copy + Ord + Add<Output = T> + Sum<T> + Div<U, Output = T> + Debug,
+        U: From<u8>,
+    {
+        values.sort();
+        let two = U::from(2);
+
+        let median = {
+            let mid = values.len() / 2;
+            if values.len() % 2 == 0 {
+                (values[mid - 1] + values[mid]) / two
+            } else {
+                values[mid]
+            }
+        };
+        let total: T = values.iter().copied().sum();
+        format!(
+            "{:.2?} | [{:.2?}, {:.2?}, {:.2?}]",
+            total,
+            values.first().unwrap(),
+            median,
+            values.last().unwrap()
+        )
+    }
+
+    #[test]
+    fn timing_scalar_multiplication() {
+        fn check<G: AffineRepr>(iterations: usize, msm_size: usize, curve_name: &str) {
+            let mut rng = StdRng::seed_from_u64(0u64);
+            let g1 = G::rand(&mut rng);
+            let g2 = G::rand(&mut rng);
+
+            let mut mult_times = vec![];
+            for i in 0..iterations {
+                let e = G::ScalarField::rand(&mut rng);
+                let start = Instant::now();
+                if i % 2 == 0 {
+                    let _r = g1 * e;
+                } else {
+                    let _r = g2 * e;
+                }
+                mult_times.push(start.elapsed());
+            }
+
+            let g1 = (0..msm_size).map(|_| G::rand(&mut rng)).collect::<Vec<_>>();
+            let g2 = (0..msm_size).map(|_| G::rand(&mut rng)).collect::<Vec<_>>();
+
+            let mut msm_times = vec![];
+            for i in 0..iterations {
+                let e = (0..msm_size).map(|_| G::ScalarField::rand(&mut rng)).collect::<Vec<_>>();
+                let start = Instant::now();
+                if i % 2 == 0 {
+                    let _r = G::Group::msm_unchecked(&g1, &e);
+                } else {
+                    let _r = G::Group::msm_unchecked(&g2, &e);
+                }
+                msm_times.push(start.elapsed());
+            }
+
+            println!("For {curve_name} curve, MSM size={msm_size} and {iterations} iterations");
+            println!("For scalar mult {:?}", statistics(mult_times));
+            println!("For MSM {:?}", statistics(msm_times));
+        }
+
+        check::<G1Affine>(100, 20, "BLS12-381");
+        check::<PallasAffine>(100, 20, "Pallas");
+    }
 
     #[test]
     fn print_size_of_group_elems() {
