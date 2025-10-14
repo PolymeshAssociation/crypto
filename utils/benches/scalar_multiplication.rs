@@ -111,11 +111,13 @@ fn scalar_multiplication_benchmark(c: &mut Criterion) {
 fn msm_benchmark(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(0u64);
 
+    let msm_sizes = [1000, 2000, 4000, 8000];
+
     // Test different MSM sizes for BLS12-381
     {
         let mut group_bls12 = c.benchmark_group("BLS12-381 MSM");
 
-        for msm_size in [10, 20, 50, 100, 1000].iter() {
+        for msm_size in msm_sizes.iter() {
             let points = (0..*msm_size)
                 .map(|_| G1Affine::rand(&mut rng))
                 .collect::<Vec<_>>();
@@ -139,7 +141,7 @@ fn msm_benchmark(c: &mut Criterion) {
     {
         let mut group_pallas = c.benchmark_group("Pallas MSM");
 
-        for msm_size in [10, 20, 50, 100, 1000].iter() {
+        for msm_size in msm_sizes.iter() {
             let points = (0..*msm_size)
                 .map(|_| PallasAffine::rand(&mut rng))
                 .collect::<Vec<_>>();
