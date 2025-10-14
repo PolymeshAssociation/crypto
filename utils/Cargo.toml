@@ -64,7 +64,6 @@ ark-vesta = { version = "^0.5.0", default-features = false }
 [features]
 default = ["std", "parallel", "serde"]
 
-no_std = ["zeroize/alloc"]
 std = ["ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "serde?/std", "ark-poly/std", "merlin/std", "num/std", "hkdf/std", "sha2/std", "chacha20poly1305/std", "zeroize/std"]
 
 print-trace = ["ark-std/print-trace"]

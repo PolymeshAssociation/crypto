@@ -46,7 +46,6 @@ rand_core = "0.6.4"
 [features]
 default = [ "std", "parallel", "serde" ]
 
-no_std = [ "zeroize/alloc" ]
 std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "dock_crypto_utils/std", "serde?/std", "zeroize/std" ]
 
 print-trace = [ "ark-std/print-trace", "dock_crypto_utils/print-trace" ]

@@ -107,8 +107,8 @@ pub mod tests {
             println!("For MSM {:?}", statistics(msm_times));
         }
 
-        check::<G1Affine>(100, 20, "BLS12-381");
-        check::<PallasAffine>(100, 20, "Pallas");
+        check::<G1Affine>(2000, 8000, "BLS12-381");
+        check::<PallasAffine>(2000, 8000, "Pallas");
     }
 
     #[test]
