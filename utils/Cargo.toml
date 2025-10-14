@@ -45,6 +45,11 @@ chacha20poly1305 = {version = "0.10.1", default-features = false}
 ark-secp256r1 = { workspace = true, default-features = false }
 ark-std = { workspace = true, features = ["getrandom"] }
 ark-pallas = {version = "0.4.0", default-features = false, features = ["curve"]}
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "scalar_multiplication"
+harness = false
 
 [features]
 default = ["std", "parallel", "serde"]
