@@ -1,7 +1,7 @@
 use crate::{
-    concat_slices, hashing_utils::affine_group_elem_from_try_and_incr, msm::WindowTable,
+    concat_slices, hashing_utils::affine_group_elem_from_try_and_incr,
 };
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr, CurveGroup, scalar_mul::BatchMulPreprocessing};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_into_iter, vec::Vec};
 use digest::Digest;
@@ -51,12 +51,12 @@ impl<G: AffineRepr> PedersenCommitmentKey<G> {
         randomness: &[G::ScalarField],
     ) -> Vec<G> {
         assert_eq!(messages.len(), randomness.len());
-        let g_table = WindowTable::new(messages.len(), self.g.into_group());
-        let h_table = WindowTable::new(randomness.len(), self.h.into_group());
+        let g_table = BatchMulPreprocessing::new(self.g.into_group(), messages.len());
+        let h_table = BatchMulPreprocessing::new(self.h.into_group(), randomness.len());
         G::Group::normalize_batch(
             &cfg_into_iter!(messages)
                 .zip(cfg_into_iter!(randomness))
-                .map(|(m_i, r_i)| &g_table * m_i + &h_table * r_i)
+                .map(|(m_i, r_i)| g_table.batch_mul(&[m_i.clone()])[0] + h_table.batch_mul(&[r_i.clone()])[0])
                 .collect::<Vec<_>>(),
         )
     }

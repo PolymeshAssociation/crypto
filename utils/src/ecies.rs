@@ -1,7 +1,10 @@
+#![allow(deprecated)]
+
 //! Elliptic Curve Integrated Encryption Scheme (ECIES)
 
 use crate::elgamal::keygen;
-use aead::{generic_array::GenericArray, Aead, KeyInit};
+use aead::{Aead, KeyInit};
+use digest::generic_array::GenericArray;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{rand::RngCore, vec, vec::Vec};
@@ -102,7 +105,6 @@ impl<G: AffineRepr, const KEY_BYTE_SIZE: usize, const NONCE_BYTE_SIZE: usize>
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use ark_bls12_381::{G1Affine, G2Affine};
     use ark_ec::CurveGroup;
     use ark_std::{
         rand::{rngs::StdRng, SeedableRng},
@@ -130,7 +132,7 @@ pub mod tests {
             assert_eq!(decrypted_r, r);
         }
 
-        check::<G1Affine>(&mut rng);
-        check::<G2Affine>(&mut rng);
+        check::<ark_bls12_381::G1Affine>(&mut rng);
+        check::<ark_bls12_381::G2Affine>(&mut rng);
     }
 }

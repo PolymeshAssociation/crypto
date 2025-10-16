@@ -31,6 +31,7 @@ edition = "2021"
 authors = ["Dock.io"]
 license = "Apache-2.0"
 repository = "https://github.com/docknetwork/crypto"
+keywords = ["crypto"]
 
 [workspace.dependencies]
 ark-ff = { version = "^0.4.1", default-features = false }
@@ -46,12 +47,29 @@ digest = { version = "0.10", default-features = false, features = ["alloc"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_with = { version = "3.14.0", default-features = false, features = ["macros", "alloc"] }
 cfg_eval = { version = "0.1.2", default-features = false }
-zeroize = { version = "1.7.0", default-features = false, features = ["derive"] }
+zeroize = { version = "1.7.0", default-features = false, features = ["derive", "alloc"] }
 blake2 = { version = "0.10", default-features = false }
 ark-bls12-381 = { version = "^0.4.0", default-features = false, features = [ "curve" ] }
 ark-secp256r1 = { version = "^0.4.0", default-features = false }
 itertools = { version = "0.14.0", default-features = false }
 sha3 = { version = "0.10.6", default-features = false }
+
+[patch.crates-io]
+#ark-ff = { path = "../arkworks-algebra/ff" }
+#ark-ec = { path = "../arkworks-algebra/ec" }
+#ark-poly = { path = "../arkworks-algebra/poly" }
+#ark-serialize = { path = "../arkworks-algebra/serialize" }
+#ark-bls12-381 = { path = "../arkworks-algebra/curves/bls12_381" }
+#ark-secp256r1 = { path = "../arkworks-algebra/curves/secp256r1" }
+#ark-pallas = { path = "../arkworks-algebra/curves/pallas" }
+
+ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-bls12-381 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-secp256r1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
 
 [profile.release]
 lto = true

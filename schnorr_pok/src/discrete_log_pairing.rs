@@ -70,7 +70,7 @@ macro_rules! impl_protocol {
             }
 
             impl<E: Pairing> $protocol<E> {
-                pub fn init(witness: $witness_group, blinding: $witness_group, other: &$other_group) -> Self {
+                pub fn init(witness: $witness_group, blinding: $witness_group, other: $other_group) -> Self {
                     let t = $pairing!(E::pairing, other, blinding);
                     Self {
                         t,
@@ -186,7 +186,7 @@ mod tests {
                 let y = $pairing!(Bls12_381::pairing, base, witness);
                 let blinding = $witness_group::rand(&mut rng);
 
-                let protocol = $protocol::<Bls12_381>::init(witness, blinding, &base);
+                let protocol = $protocol::<Bls12_381>::init(witness, blinding, base);
                 let mut chal_contrib_prover = vec![];
                 protocol
                     .challenge_contribution(&base, &y, &mut chal_contrib_prover)
@@ -237,7 +237,7 @@ mod tests {
                 let mut proofs = vec![];
                 for i in 0..count {
                     let protocol =
-                        $protocol::<Bls12_381>::init(witnesses[i], blindings[i], &bases[i]);
+                        $protocol::<Bls12_381>::init(witnesses[i], blindings[i], bases[i]);
                     let proof = protocol.gen_proof(&challenge);
                     assert!(proof.verify(&ys[i], &bases[i], &challenge));
                     proofs.push(proof);

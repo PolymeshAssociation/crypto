@@ -12,16 +12,24 @@ doctest = false
 path = "src/lib.rs"
 
 [dependencies]
-ark-ff = { workspace = true, default-features = false }
-ark-ec = { workspace = true, default-features = false }
-ark-std = { workspace = true, default-features = false }
-ark-poly = { workspace = true, default-features = false }
-ark-serialize = { workspace = true, default-features = false }
-#ark-ff = { version = "^0.5.0", default-features = false }
-#ark-ec = { version = "^0.5.0", default-features = false }
-#ark-std = { version = "^0.5.0", default-features = false }
-#ark-poly = { version = "^0.5.0", default-features = false }
-#ark-serialize = { version = "^0.5.0", default-features = false, features = [ "derive" ] }
+# ark-ff = { workspace = true, default-features = false }
+# ark-ec = { workspace = true, default-features = false }
+# ark-std = { workspace = true, default-features = false }
+# ark-poly = { workspace = true, default-features = false }
+# ark-serialize = { workspace = true, default-features = false }
+
+ark-ff = { version = "^0.5.0", default-features = false }
+ark-ec = { version = "^0.5.0", default-features = false }
+ark-poly = { version = "^0.5.0", default-features = false }
+ark-serialize = { version = "^0.5.0", default-features = false, features = [ "derive" ] }
+ark-std = { version = "^0.5.0", default-features = false }
+
+#ark-ff = { path = "../../arkworks-algebra/ff", default-features = false }
+#ark-ec = { path = "../../arkworks-algebra/ec", default-features = false }
+#ark-poly = { path = "../../arkworks-algebra/poly", default-features = false }
+#ark-serialize = { path = "../../arkworks-algebra/serialize", default-features = false, features = [ "derive" ] }
+#ark-std = { path = "../../../arkworks/std", default-features = false }
+
 zeroize = { workspace = true, default-features = false }
 digest = { workspace = true, default-features = false }
 serde = { workspace = true, default-features = false, optional = true }
@@ -40,12 +48,19 @@ ahash = { version = "0.8", default-features = false }
 
 [dev-dependencies]
 blake2 = { workspace = true, default-features = false }
-ark-bls12-381 = { workspace = true, default-features = false }
 chacha20poly1305 = {version = "0.10.1", default-features = false}
-ark-secp256r1 = { workspace = true, default-features = false }
-ark-std = { workspace = true, features = ["getrandom"] }
-ark-pallas = {version = "0.4.0", default-features = false, features = ["curve"]}
 criterion = { version = "0.5", features = ["html_reports"] }
+
+#ark-bls12-381 = { workspace = true, default-features = false }
+#ark-secp256r1 = { workspace = true, default-features = false }
+
+ark-bls12-381 = { version = "^0.5.0", default-features = false, features = ["curve"] }
+ark-secp256r1 = { version = "^0.5.0", default-features = false }
+ark-pallas = { version = "^0.5.0", default-features = false, features = ["curve"] }
+
+#ark-bls12-381 = { path = "../../arkworks-algebra/curves/bls12_381", default-features = false }
+#ark-secp256r1 = { path = "../../arkworks-algebra/curves/secp256r1", default-features = false }
+#ark-pallas = { path = "../../arkworks-algebra/curves/pallas", default-features = false }
 
 [[bench]]
 name = "scalar_multiplication"
@@ -54,7 +69,6 @@ harness = false
 [features]
 default = ["std", "parallel", "serde"]
 
-no_std = ["zeroize/alloc"]
 std = ["ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "serde?/std", "ark-poly/std", "merlin/std", "num/std", "hkdf/std", "sha2/std", "chacha20poly1305/std", "zeroize/std"]
 
 print-trace = ["ark-std/print-trace"]
