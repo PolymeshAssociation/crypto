@@ -72,5 +72,6 @@ default = ["std", "parallel", "serde"]
 std = ["ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "serde?/std", "ark-poly/std", "merlin/std", "num/std", "hkdf/std", "sha2/std", "chacha20poly1305/std", "zeroize/std"]
 
 print-trace = ["ark-std/print-trace"]
-parallel = ["std", "ark-ff/parallel", "ark-ec/parallel", "ark-poly/parallel", "ark-std/parallel", "rayon"]
+parallel = [ "std", "rayon" ]
+parallel_full = [ "parallel", "ark-ff/parallel", "ark-ec/parallel", "ark-poly/parallel", "ark-std/parallel" ]
 serde = ["dep:serde", "serde_with", "merlin/serde"]
