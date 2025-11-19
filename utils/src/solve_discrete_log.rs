@@ -5,10 +5,19 @@ use hashbrown::HashMap;
 #[cfg(not(feature = "std"))]
 use integer_sqrt::IntegerSquareRoot;
 
+#[cfg(feature = "std")]
+pub const MAX_NUM_BABY_STEPS: u64 = 1 << 24;
+#[cfg(not(feature = "std"))]
+pub const MAX_NUM_BABY_STEPS: u64 = 1 << 16;
+
 /// Solve discrete log using brute force.
 /// `max` is the maximum value of the discrete log and this returns `x` such that `1 <= x <= max` and `base * x = target`
 /// if such `x` exists, else return None.
-pub fn solve_discrete_log_brute_force<G: AdditiveGroup>(max: u64, base: G, target: G) -> Option<u64> {
+pub fn solve_discrete_log_brute_force<G: AdditiveGroup>(
+    max: u64,
+    base: G,
+    target: G,
+) -> Option<u64> {
     if target == base {
         return Some(1);
     }
@@ -44,8 +53,10 @@ pub fn solve_discrete_log_bsgs_alt<G: AdditiveGroup>(max: u64, base: G, target: 
     #[cfg(feature = "std")]
     let m = (max as f64 / 2.0).sqrt().ceil() as u64;
     #[cfg(not(feature = "std"))]
-    let m = max.integer_sqrt();
-    solve_discrete_log_bsgs_inner(m, 2 * m, base, target)
+    let m = (max / 2).integer_sqrt();
+
+    let m = core::cmp::min(m, MAX_NUM_BABY_STEPS);
+    solve_discrete_log_bsgs_inner(m, max / m, base, target)
 }
 
 fn solve_discrete_log_bsgs_inner<G: AdditiveGroup>(
@@ -91,8 +102,8 @@ pub mod tests {
     };
 
     use ark_bls12_381::{Bls12_381, Fr, G1Projective, G2Projective};
-    use ark_ff::{AdditiveGroup};
     use ark_ec::pairing::{Pairing, PairingOutput};
+    use ark_ff::AdditiveGroup;
     use ark_std::{
         rand::{prelude::StdRng, SeedableRng},
         UniformRand,
