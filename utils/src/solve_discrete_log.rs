@@ -6,7 +6,7 @@ use hashbrown::HashMap;
 use integer_sqrt::IntegerSquareRoot;
 
 #[cfg(feature = "std")]
-pub const MAX_NUM_BABY_STEPS: u64 = 1 << 24;
+pub const MAX_NUM_BABY_STEPS: u64 = 1 << 18;
 #[cfg(not(feature = "std"))]
 pub const MAX_NUM_BABY_STEPS: u64 = 1 << 16;
 
