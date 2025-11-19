@@ -55,8 +55,9 @@ pub fn solve_discrete_log_bsgs_alt<G: AdditiveGroup>(max: u64, base: G, target: 
     #[cfg(not(feature = "std"))]
     let m = (max / 2).integer_sqrt();
 
-    let m = core::cmp::min(m, MAX_NUM_BABY_STEPS);
-    solve_discrete_log_bsgs_inner(m, max / m, base, target)
+    let baby_steps = core::cmp::min(m, MAX_NUM_BABY_STEPS);
+    let giant_steps = (max + baby_steps - 1) / baby_steps;
+    solve_discrete_log_bsgs_inner(baby_steps, giant_steps, base, target)
 }
 
 fn solve_discrete_log_bsgs_inner<G: AdditiveGroup>(
