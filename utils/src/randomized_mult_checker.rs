@@ -7,6 +7,7 @@ use ark_std::{
     UniformRand,
 };
 use hashbrown::{HashMap, hash_map::Entry};
+#[cfg(feature = "ahash")]
 use ahash::RandomState;
 
 /// Represents a scalar multiplication check of the form `G1 * a1 + G2 * a2 + G3 * a3 + ... = T`.
@@ -23,7 +24,10 @@ pub struct RandomizedMultChecker<G: AffineRepr> {
     /// Verification will expect the multi-scalar multiplication of key-value pairs to be one.
     /// x-coordinate -> (scalar, point, y-coordinate)
     // This trick is taken from halo2 code (MSM) but keeping both the point and y coordinate in value since there is no way to convert back from x, y coordinates for AffineRepr
+    #[cfg(feature = "ahash")]
     pub args: HashMap<G::BaseField, (G::ScalarField, G, G::BaseField), RandomState>,
+    #[cfg(not(feature = "ahash"))]
+    pub args: HashMap<G::BaseField, (G::ScalarField, G, G::BaseField)>,
     /// The random value chosen during creation
     pub random: G::ScalarField,
     /// The random value to be used for current check. After each check, set `current_random = current_random * random`
@@ -33,7 +37,10 @@ pub struct RandomizedMultChecker<G: AffineRepr> {
 impl<G: AffineRepr> RandomizedMultChecker<G> {
     pub fn new(random: G::ScalarField) -> Self {
         Self {
+            #[cfg(feature = "ahash")]
             args: HashMap::with_hasher(RandomState::new()),
+            #[cfg(not(feature = "ahash"))]
+            args: HashMap::new(),
             random,
             current_random: G::ScalarField::one(),
         }
