@@ -1,3 +1,4 @@
+#[cfg(feature = "ahash")]
 use ahash::RandomState;
 use alloc::string::ToString;
 use ark_ff::AdditiveGroup;
@@ -73,7 +74,10 @@ fn solve_discrete_log_bsgs_inner<G: AdditiveGroup>(
         return Some(0);
     }
     // Create a map of `base * i -> i` for `i` in `[1, num_baby_steps]`
+    #[cfg(feature = "ahash")]
     let mut baby_steps = HashMap::with_hasher(RandomState::new());
+    #[cfg(not(feature = "ahash"))]
+    let mut baby_steps = HashMap::new();
     baby_steps.insert(base.to_string(), 1);
     let mut cur = base;
     for i in 2..=num_baby_steps {
