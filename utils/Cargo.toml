@@ -67,7 +67,7 @@ name = "scalar_multiplication"
 harness = false
 
 [features]
-default = ["std", "parallel", "serde"]
+default = ["std", "parallel", "serde", "ahash"]
 
 std = ["ark-ff/std", "ark-ec/std", "ark-std/std", "ark-serialize/std", "serde?/std", "ark-poly/std", "merlin/std", "num/std", "hkdf/std", "sha2/std", "chacha20poly1305/std", "zeroize/std"]
 
