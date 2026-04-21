@@ -3,15 +3,13 @@
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate,
 };
-use ark_std::{io::{Read, Write}, vec::Vec};
+use ark_std::{
+    io::{Read, Write},
+    vec::Vec,
+};
 
 #[cfg(feature = "serde")]
-use ark_std::{
-    fmt,
-    marker::PhantomData,
-    mem::MaybeUninit,
-    ptr,
-};
+use ark_std::{fmt, marker::PhantomData, mem::MaybeUninit, ptr};
 use core::ops::{Deref, DerefMut};
 
 use keccak;

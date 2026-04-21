@@ -16,9 +16,7 @@ pub fn new_merlin_transcript(label: &'static [u8]) -> impl Transcript + Clone + 
     MerlinTranscript::new(label)
 }
 
-#[derive(
-    Clone, Zeroize, ZeroizeOnDrop, CanonicalSerialize, CanonicalDeserialize,
-)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MerlinTranscript {
     pub merlin: Merlin,

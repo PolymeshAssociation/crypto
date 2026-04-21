@@ -16,6 +16,7 @@ extern crate alloc;
 extern crate core;
 
 pub mod aliases;
+pub mod error;
 pub mod extend_some;
 // TODO: Feature gate this
 #[macro_use]

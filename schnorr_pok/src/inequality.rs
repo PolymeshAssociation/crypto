@@ -31,11 +31,11 @@ use ark_ff::Zero;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{fmt::Debug, io::Write, ops::Neg, rand::RngCore, vec::Vec, UniformRand};
 use core::mem;
+#[cfg(feature = "serde")]
+use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use dock_crypto_utils::{
     commitment::PedersenCommitmentKey, randomized_mult_checker::RandomizedMultChecker,
 };
-#[cfg(feature = "serde")]
-use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Protocol to prove inequality of discrete log (committed in a Pedersen commitment) with either a
@@ -56,9 +56,7 @@ pub struct DiscreteLogInequalityProtocol<G: AffineRepr> {
 
 /// Proof created using `DiscreteLogInequalityProtocol`
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize,
-)]
+#[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InequalityProof<G: AffineRepr> {
     /// `B = G * (m - v) * a`
@@ -241,23 +239,20 @@ impl<G: AffineRepr> InequalityProof<G> {
         if self.b.is_zero() {
             return Err(SchnorrError::InvalidProofOfEquality);
         }
-        if !self
-            .sc_c
+        self.sc_c
             .verify(commitment, &comm_key.g, &comm_key.h, challenge)
-        {
-            return Err(SchnorrError::InvalidProofOfEquality);
-        }
-        if !self.sc_b.verify(&self.b, &comm_key.g, challenge) {
-            return Err(SchnorrError::InvalidProofOfEquality);
-        }
-        if !self.sc_b_ped.verify(
-            &self.b,
-            &DiscreteLogInequalityProtocol::base_for_b(commitment, inequal_to, comm_key),
-            &comm_key.h,
-            challenge,
-        ) {
-            return Err(SchnorrError::InvalidProofOfEquality);
-        }
+            .map_err(|_| SchnorrError::InvalidProofOfEquality)?;
+        self.sc_b
+            .verify(&self.b, &comm_key.g, challenge)
+            .map_err(|_| SchnorrError::InvalidProofOfEquality)?;
+        self.sc_b_ped
+            .verify(
+                &self.b,
+                &DiscreteLogInequalityProtocol::base_for_b(commitment, inequal_to, comm_key),
+                &comm_key.h,
+                challenge,
+            )
+            .map_err(|_| SchnorrError::InvalidProofOfEquality)?;
         Ok(())
     }
 
@@ -384,9 +379,7 @@ pub struct UnknownDiscreteLogInequalityProtocol<G: AffineRepr> {
 
 /// Proof created using `UnknownDiscreteLogInequalityProtocol`
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize,
-)]
+#[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnknownDiscreteLogInequalityProof<G: AffineRepr> {
     /// `c = (H * x - Z) * r`
@@ -534,19 +527,19 @@ impl<G: AffineRepr> UnknownDiscreteLogInequalityProof<G> {
         let zero = G::zero();
         let minus_z = z.into_group().neg().into_affine();
         let minus_y = y.into_group().neg().into_affine();
-        if !self.sc_c.verify(&self.c, h, &minus_z, challenge) {
-            return Err(SchnorrError::InvalidProofOfEquality);
-        }
-        if !self.sc_zero.verify(
-            &zero,
-            g,
-            &minus_y,
-            challenge,
-            &self.sc_c.response1,
-            &self.sc_c.response2,
-        ) {
-            return Err(SchnorrError::InvalidProofOfEquality);
-        }
+        self.sc_c
+            .verify(&self.c, h, &minus_z, challenge)
+            .map_err(|_| SchnorrError::InvalidProofOfEquality)?;
+        self.sc_zero
+            .verify(
+                &zero,
+                g,
+                &minus_y,
+                challenge,
+                &self.sc_c.response1,
+                &self.sc_c.response2,
+            )
+            .map_err(|_| SchnorrError::InvalidProofOfEquality)?;
         Ok(())
     }
 }
@@ -628,7 +621,7 @@ mod tests {
                 &mut checker,
             )
             .unwrap();
-        assert!(checker.verify());
+        checker.verify().unwrap();
 
         let protocol = DiscreteLogInequalityProtocol::init_for_inequality_with_committed_value(
             &mut rng,
@@ -685,7 +678,7 @@ mod tests {
                 &mut checker,
             )
             .unwrap();
-        assert!(checker.verify());
+        checker.verify().unwrap();
     }
 
     #[test]

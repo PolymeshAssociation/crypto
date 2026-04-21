@@ -1,4 +1,4 @@
-use ark_ec::{CurveGroup, scalar_mul::BatchMulPreprocessing};
+use ark_ec::{scalar_mul::BatchMulPreprocessing, CurveGroup};
 use ark_std::vec::Vec;
 
 /// Multiply the same group element by multiple field elements using efficient batch processing
@@ -21,13 +21,13 @@ pub mod tests {
         pairing::Pairing, scalar_mul::wnaf::WnafContext, AffineRepr, CurveGroup, VariableBaseMSM,
     };
     use ark_ff::{PrimeField, Zero};
+    use ark_pallas::Affine as PallasAffine;
+    use ark_serialize::CanonicalSerialize;
     use ark_std::{
         cfg_iter,
         rand::{rngs::StdRng, SeedableRng},
         UniformRand,
     };
-    use ark_serialize::CanonicalSerialize;
-    use ark_pallas::Affine as PallasAffine;
 
     #[cfg(feature = "parallel")]
     use rayon::prelude::*;
@@ -92,7 +92,9 @@ pub mod tests {
 
             let mut msm_times = vec![];
             for i in 0..iterations {
-                let e = (0..msm_size).map(|_| G::ScalarField::rand(&mut rng)).collect::<Vec<_>>();
+                let e = (0..msm_size)
+                    .map(|_| G::ScalarField::rand(&mut rng))
+                    .collect::<Vec<_>>();
                 let start = Instant::now();
                 if i % 2 == 0 {
                     let _r = G::Group::msm_unchecked(&g1, &e);

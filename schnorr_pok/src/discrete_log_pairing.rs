@@ -18,11 +18,11 @@ use ark_ec::{
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{io::Write, vec::Vec};
+#[cfg(feature = "serde")]
+use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use dock_crypto_utils::{
     pair_g1_g2, pair_g2_g1, randomized_pairing_check::RandomizedPairingChecker,
 };
-#[cfg(feature = "serde")]
-use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 macro_rules! impl_protocol {
@@ -113,8 +113,11 @@ macro_rules! impl_protocol {
                     y: &PairingOutput<E>,
                     other: impl Into<$other_group_prepared>,
                     challenge: &E::ScalarField,
-                ) -> bool {
-                    $pairing!(E::pairing, other, self.response) == (self.t + *y * challenge)
+                ) -> Result<(), SchnorrError> {
+                    if $pairing!(E::pairing, other, self.response) != (self.t + *y * challenge) {
+                        return Err(SchnorrError::InvalidResponse);
+                    }
+                    Ok(())
                 }
 
                 pub fn challenge_contribution<W: Write>(
@@ -204,7 +207,7 @@ mod tests {
 
                 let challenge_verifier =
                     compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_verifier);
-                assert!(proof.verify(&y, &base, &challenge_verifier));
+                proof.verify(&y, &base, &challenge_verifier).unwrap();
                 assert_eq!(chal_contrib_prover, chal_contrib_verifier);
                 assert_eq!(challenge_prover, challenge_verifier);
 
@@ -212,7 +215,9 @@ mod tests {
 
                 // Check with prepared
                 let base_prepared = <Bls12_381 as Pairing>::$other_group_prepared::from(base);
-                assert!(proof.verify(&y, base_prepared, &challenge_verifier));
+                proof
+                    .verify(&y, base_prepared, &challenge_verifier)
+                    .unwrap();
 
                 // Check with randomized pairing checker
                 let count = 3;
@@ -239,7 +244,7 @@ mod tests {
                     let protocol =
                         $protocol::<Bls12_381>::init(witnesses[i], blindings[i], bases[i]);
                     let proof = protocol.gen_proof(&challenge);
-                    assert!(proof.verify(&ys[i], &bases[i], &challenge));
+                    proof.verify(&ys[i], &bases[i], &challenge).unwrap();
                     proofs.push(proof);
                 }
 
@@ -254,7 +259,7 @@ mod tests {
                             &mut checker,
                         );
                     }
-                    assert!(checker.verify());
+                    checker.verify().unwrap();
                 }
             };
         }

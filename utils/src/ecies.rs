@@ -4,10 +4,10 @@
 
 use crate::elgamal::keygen;
 use aead::{Aead, KeyInit};
-use digest::generic_array::GenericArray;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{rand::RngCore, vec, vec::Vec};
+use digest::generic_array::GenericArray;
 // use digest::{
 //     core_api::{BlockSizeUser, CoreProxy},
 //     Digest, FixedOutputReset, HashMarker, OutputSizeUser,

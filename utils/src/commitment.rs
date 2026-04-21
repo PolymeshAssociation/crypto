@@ -1,7 +1,5 @@
-use crate::{
-    concat_slices, hashing_utils::affine_group_elem_from_try_and_incr,
-};
-use ark_ec::{AffineRepr, CurveGroup, scalar_mul::BatchMulPreprocessing};
+use crate::{concat_slices, hashing_utils::affine_group_elem_from_try_and_incr};
+use ark_ec::{scalar_mul::BatchMulPreprocessing, AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_into_iter, vec::Vec};
 use digest::Digest;
@@ -14,15 +12,7 @@ use rayon::prelude::*;
 
 /// A Pedersen commitment key `(g, h)`. The Pedersen commitment will be `g * m + h * r` with opening `(m, r)`
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Debug,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PedersenCommitmentKey<G: AffineRepr> {
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
@@ -56,7 +46,9 @@ impl<G: AffineRepr> PedersenCommitmentKey<G> {
         G::Group::normalize_batch(
             &cfg_into_iter!(messages)
                 .zip(cfg_into_iter!(randomness))
-                .map(|(m_i, r_i)| g_table.batch_mul(&[m_i.clone()])[0] + h_table.batch_mul(&[r_i.clone()])[0])
+                .map(|(m_i, r_i)| {
+                    g_table.batch_mul(&[m_i.clone()])[0] + h_table.batch_mul(&[r_i.clone()])[0]
+                })
                 .collect::<Vec<_>>(),
         )
     }

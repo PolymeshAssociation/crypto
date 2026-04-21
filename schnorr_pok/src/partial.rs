@@ -14,14 +14,12 @@ use ark_std::{
     vec,
     vec::Vec,
 };
-use dock_crypto_utils::{
-    expect_equality, randomized_mult_checker::RandomizedMultChecker
-};
-use zeroize::Zeroize;
 #[cfg(feature = "serde")]
 use dock_crypto_utils::serde_utils::ArkObjectBytes;
+use dock_crypto_utils::{expect_equality, randomized_mult_checker::RandomizedMultChecker};
 #[cfg(feature = "serde")]
 use serde_with::Same;
+use zeroize::Zeroize;
 
 /// Response during step 3 of the Schnorr protocol to prove knowledge of 1 or more discrete logs.
 /// This is called partial because it does not contain the responses for all the witnesses. This is
@@ -31,9 +29,7 @@ use serde_with::Same;
 /// if `m1` and `m3` are also witnesses of another Schnorr protocol then this will contain only the responses
 /// for `m2` and `m4`. During verification, the responses for `m1` and `m3` will be given to it.
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PartialSchnorrResponse<G: AffineRepr> {
     /// Key of the map is the witness index and value is the response for that witnesses.
@@ -45,15 +41,7 @@ pub struct PartialSchnorrResponse<G: AffineRepr> {
 /// Proof of knowledge of discrete log but does not contain the response as the response comes from another protocol
 /// running with it which has the same witness (discrete log)
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Default,
-    Clone,
-    PartialEq,
-    Eq,
-    Debug,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Default, Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PartialPokDiscreteLog<G: AffineRepr> {
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
@@ -64,15 +52,7 @@ pub struct PartialPokDiscreteLog<G: AffineRepr> {
 /// `a` and `b` in `C = G * a + H * b`, contains the response only for witness `a`. This is because response for `b` will
 /// come from another Schnorr protocol which also has `b` as one of the witnesses
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Default,
-    Clone,
-    PartialEq,
-    Eq,
-    Debug,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Default, Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Partial1PokPedersenCommitment<G: AffineRepr> {
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
@@ -85,15 +65,7 @@ pub struct Partial1PokPedersenCommitment<G: AffineRepr> {
 /// `a` and `b` in `C = G * a + H * b`, contains the response only for witness `b`. This is because response for `a` will
 /// come from another Schnorr protocol which also has `a` as one of the witnesses
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Default,
-    Clone,
-    PartialEq,
-    Eq,
-    Debug,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Default, Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Partial2PokPedersenCommitment<G: AffineRepr> {
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
@@ -106,15 +78,7 @@ pub struct Partial2PokPedersenCommitment<G: AffineRepr> {
 /// `a` and `b` in `C = G * a + H * b`, contains no response. This is because response for `a` and `b` will come from
 /// another Schnorr protocol which also has `a` and `b` as their witnesses
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Default,
-    Clone,
-    PartialEq,
-    Eq,
-    Debug,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Default, Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PartialPokPedersenCommitment<G: AffineRepr> {
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
@@ -278,10 +242,13 @@ impl<G: AffineRepr> PartialPokDiscreteLog<G> {
         base: &G,
         challenge: &G::ScalarField,
         response: &G::ScalarField,
-    ) -> bool {
+    ) -> Result<(), SchnorrError> {
         let mut expected = base.mul_bigint(response.into_bigint());
         expected -= y.mul_bigint(challenge.into_bigint());
-        expected.into_affine() == self.t
+        if expected.into_affine() != self.t {
+            return Err(SchnorrError::InvalidResponse);
+        }
+        Ok(())
     }
 
     pub fn verify_using_randomized_mult_checker(
@@ -314,11 +281,14 @@ impl<G: AffineRepr> PartialPokPedersenCommitment<G> {
         challenge: &G::ScalarField,
         response1: &G::ScalarField,
         response2: &G::ScalarField,
-    ) -> bool {
+    ) -> Result<(), SchnorrError> {
         let mut expected = base1.mul_bigint(response1.into_bigint());
         expected += base2.mul_bigint(response2.into_bigint());
         expected -= y.mul_bigint(challenge.into_bigint());
-        expected.into_affine() == self.t
+        if expected.into_affine() != self.t {
+            return Err(SchnorrError::InvalidResponse);
+        }
+        Ok(())
     }
 
     pub fn verify_using_randomized_mult_checker(
@@ -363,11 +333,14 @@ impl<G: AffineRepr> Partial1PokPedersenCommitment<G> {
         base2: &G,
         challenge: &G::ScalarField,
         response2: &G::ScalarField,
-    ) -> bool {
+    ) -> Result<(), SchnorrError> {
         let mut expected = base1.mul_bigint(self.response1.into_bigint());
         expected += base2.mul_bigint(response2.into_bigint());
         expected -= y.mul_bigint(challenge.into_bigint());
-        expected.into_affine() == self.t
+        if expected.into_affine() != self.t {
+            return Err(SchnorrError::InvalidResponse);
+        }
+        Ok(())
     }
 
     /// Same as `Self::verify` except it uses `RandomizedMultChecker` to combine the scalar multiplication checks into a single
@@ -412,11 +385,14 @@ impl<G: AffineRepr> Partial2PokPedersenCommitment<G> {
         base2: &G,
         challenge: &G::ScalarField,
         response1: &G::ScalarField,
-    ) -> bool {
+    ) -> Result<(), SchnorrError> {
         let mut expected = base1.mul_bigint(response1.into_bigint());
         expected += base2.mul_bigint(self.response2.into_bigint());
         expected -= y.mul_bigint(challenge.into_bigint());
-        expected.into_affine() == self.t
+        if expected.into_affine() != self.t {
+            return Err(SchnorrError::InvalidResponse);
+        }
+        Ok(())
     }
 
     /// Same as `Self::verify` except it uses `RandomizedMultChecker` to combine the scalar multiplication checks into a single
@@ -552,7 +528,7 @@ mod tests {
                 &mut checker,
             )
             .unwrap();
-        assert!(checker.verify());
+        checker.verify().unwrap();
     }
 
     #[test]
@@ -603,8 +579,10 @@ mod tests {
         assert_eq!(chal_contrib_prover, chal_contrib_verifier);
         assert_eq!(challenge_prover, challenge_verifier);
 
-        assert!(proof_1.verify(&y_1, &base1, &challenge_verifier));
-        assert!(proof_2.verify(&y_2, &base2, &challenge_verifier, &proof_1.response));
+        proof_1.verify(&y_1, &base1, &challenge_verifier).unwrap();
+        proof_2
+            .verify(&y_2, &base2, &challenge_verifier, &proof_1.response)
+            .unwrap();
 
         let y_1 = (base1 * witness1 + base2 * witness2).into_affine();
         let y_2 = (base3 * witness1 + base4 * witness2).into_affine();
@@ -668,29 +646,37 @@ mod tests {
 
         assert_eq!(chal_contrib_prover, chal_contrib_verifier);
         assert_eq!(challenge_prover, challenge_verifier);
-        assert!(proof_1.verify(&y_1, &base1, &base2, &challenge_verifier));
-        assert!(proof_2.verify(
-            &y_2,
-            &base3,
-            &base4,
-            &challenge_verifier,
-            &proof_1.response1,
-            &proof_1.response2
-        ));
-        assert!(proof_3.verify(
-            &y_3,
-            &base5,
-            &base6,
-            &challenge_verifier,
-            &proof_1.response1
-        ));
-        assert!(proof_4.verify(
-            &y_4,
-            &base7,
-            &base8,
-            &challenge_verifier,
-            &proof_1.response2
-        ));
+        proof_1
+            .verify(&y_1, &base1, &base2, &challenge_verifier)
+            .unwrap();
+        assert!(proof_2
+            .verify(
+                &y_2,
+                &base3,
+                &base4,
+                &challenge_verifier,
+                &proof_1.response1,
+                &proof_1.response2
+            )
+            .is_ok());
+        assert!(proof_3
+            .verify(
+                &y_3,
+                &base5,
+                &base6,
+                &challenge_verifier,
+                &proof_1.response1
+            )
+            .is_ok());
+        assert!(proof_4
+            .verify(
+                &y_4,
+                &base7,
+                &base8,
+                &challenge_verifier,
+                &proof_1.response2
+            )
+            .is_ok());
 
         // Verify using RandomizedMultChecker
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
@@ -726,6 +712,6 @@ mod tests {
             &proof_1.response2,
             &mut checker,
         );
-        assert!(checker.verify());
+        checker.verify().unwrap();
     }
 }

@@ -20,9 +20,7 @@ fn scalar_multiplication_benchmark(c: &mut Criterion) {
             let g1 = G1Affine::rand(&mut rng);
             let e = <Bls12_381 as Pairing>::ScalarField::rand(&mut rng);
 
-            group_bls12.bench_function("single_scalar_mul", |b| {
-                b.iter(|| g1 * e)
-            });
+            group_bls12.bench_function("single_scalar_mul", |b| b.iter(|| g1 * e));
         }
 
         // Test batches of scalar multiplications
@@ -36,11 +34,7 @@ fn scalar_multiplication_benchmark(c: &mut Criterion) {
             group_bls12.bench_with_input(
                 BenchmarkId::new("batch_scalar_mul_seq", batch_size),
                 batch_size,
-                |b, _| {
-                    b.iter(|| {
-                        scalars.iter().map(|e| g1 * e).collect::<Vec<_>>()
-                    })
-                }
+                |b, _| b.iter(|| scalars.iter().map(|e| g1 * e).collect::<Vec<_>>()),
             );
 
             // Parallel batch scalar multiplication (only when parallel feature is enabled)
@@ -48,11 +42,7 @@ fn scalar_multiplication_benchmark(c: &mut Criterion) {
             group_bls12.bench_with_input(
                 BenchmarkId::new("batch_scalar_mul_par", batch_size),
                 batch_size,
-                |b, _| {
-                    b.iter(|| {
-                        scalars.par_iter().map(|e| g1 * e).collect::<Vec<_>>()
-                    })
-                }
+                |b, _| b.iter(|| scalars.par_iter().map(|e| g1 * e).collect::<Vec<_>>()),
             );
         }
 
@@ -68,9 +58,7 @@ fn scalar_multiplication_benchmark(c: &mut Criterion) {
             let g1 = PallasAffine::rand(&mut rng);
             let e = <PallasAffine as ark_ec::AffineRepr>::ScalarField::rand(&mut rng);
 
-            group_pallas.bench_function("single_scalar_mul", |b| {
-                b.iter(|| g1 * e)
-            });
+            group_pallas.bench_function("single_scalar_mul", |b| b.iter(|| g1 * e));
         }
 
         // Test batches of scalar multiplications
@@ -84,11 +72,7 @@ fn scalar_multiplication_benchmark(c: &mut Criterion) {
             group_pallas.bench_with_input(
                 BenchmarkId::new("batch_scalar_mul_seq", batch_size),
                 batch_size,
-                |b, _| {
-                    b.iter(|| {
-                        scalars.iter().map(|e| g1 * e).collect::<Vec<_>>()
-                    })
-                }
+                |b, _| b.iter(|| scalars.iter().map(|e| g1 * e).collect::<Vec<_>>()),
             );
 
             // Parallel batch scalar multiplication (only when parallel feature is enabled)
@@ -96,11 +80,7 @@ fn scalar_multiplication_benchmark(c: &mut Criterion) {
             group_pallas.bench_with_input(
                 BenchmarkId::new("batch_scalar_mul_par", batch_size),
                 batch_size,
-                |b, _| {
-                    b.iter(|| {
-                        scalars.par_iter().map(|e| g1 * e).collect::<Vec<_>>()
-                    })
-                }
+                |b, _| b.iter(|| scalars.par_iter().map(|e| g1 * e).collect::<Vec<_>>()),
             );
         }
 
@@ -126,11 +106,9 @@ fn msm_benchmark(c: &mut Criterion) {
                 .collect::<Vec<_>>();
 
             group_bls12.bench_with_input(
-                BenchmarkId::new("msm_unchecked", msm_size), 
+                BenchmarkId::new("msm_unchecked", msm_size),
                 msm_size,
-                |b, _| {
-                    b.iter(|| <Bls12_381 as Pairing>::G1::msm_unchecked(&points, &scalars))
-                }
+                |b, _| b.iter(|| <Bls12_381 as Pairing>::G1::msm_unchecked(&points, &scalars)),
             );
         }
 
@@ -150,11 +128,15 @@ fn msm_benchmark(c: &mut Criterion) {
                 .collect::<Vec<_>>();
 
             group_pallas.bench_with_input(
-                BenchmarkId::new("msm_unchecked", msm_size), 
+                BenchmarkId::new("msm_unchecked", msm_size),
                 msm_size,
                 |b, _| {
-                    b.iter(|| <PallasAffine as ark_ec::AffineRepr>::Group::msm_unchecked(&points, &scalars))
-                }
+                    b.iter(|| {
+                        <PallasAffine as ark_ec::AffineRepr>::Group::msm_unchecked(
+                            &points, &scalars,
+                        )
+                    })
+                },
             );
         }
 
@@ -162,9 +144,5 @@ fn msm_benchmark(c: &mut Criterion) {
     }
 }
 
-criterion_group!(
-    benches,
-    scalar_multiplication_benchmark,
-    msm_benchmark
-);
+criterion_group!(benches, scalar_multiplication_benchmark, msm_benchmark);
 criterion_main!(benches);

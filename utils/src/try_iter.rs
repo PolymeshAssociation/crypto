@@ -1,4 +1,3 @@
-
 /// Provided index is out of bounds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

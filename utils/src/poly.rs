@@ -1,6 +1,6 @@
 use ark_ff::{Field, Zero};
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
-use ark_std::{cfg_into_iter, vec::Vec, vec};
+use ark_std::{cfg_into_iter, vec, vec::Vec};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -87,9 +87,9 @@ pub fn poly_from_roots<F: Field>(roots: &[F]) -> DensePolynomial<F> {
     for (i, root) in roots.iter().enumerate() {
         // i roots can only make a polynomial with i+1 coefficients
         // Iterate from i+1 to 1 since coeffs[0] doesn't change because its for the highest degree
-        for j in (1..i+2).rev() {
+        for j in (1..i + 2).rev() {
             // eg. (a_2.x^2 + a_1.x + a_0).(x-r) = a_2.x^3 + (a_1 - a_2).x^2 + ...
-            coeffs[j] = coeffs[j] - (*root) * coeffs[j-1];
+            coeffs[j] = coeffs[j] - (*root) * coeffs[j - 1];
         }
     }
     // Convert the array to have coefficients starting from lowest degree to highest
@@ -104,8 +104,8 @@ mod tests {
 
     use super::*;
     use ark_bls12_381::Fr;
-    use ark_ff::{One, Zero};
     use ark_ff::UniformRand;
+    use ark_ff::{One, Zero};
     use ark_std::rand::rngs::StdRng;
     use ark_std::rand::SeedableRng;
 
@@ -119,7 +119,11 @@ mod tests {
         let roots = vec![Fr::from(2)];
         let poly = poly_from_roots(&roots);
         assert_eq!(poly.degree(), 1, "Polynomial degree should be 1");
-        assert_eq!(poly.coeffs[0], Fr::from(-2), "Constant coefficient should be -2");
+        assert_eq!(
+            poly.coeffs[0],
+            Fr::from(-2),
+            "Constant coefficient should be -2"
+        );
         assert_eq!(poly.coeffs[1], Fr::one(), "Linear coefficient should be 1");
         assert_eq!(poly, poly_from_roots_parallel(&roots));
 
@@ -128,9 +132,21 @@ mod tests {
         let roots = vec![Fr::from(1), Fr::from(2)];
         let poly = poly_from_roots(&roots);
         assert_eq!(poly.degree(), 2, "Polynomial degree should be 2");
-        assert_eq!(poly.coeffs[0], Fr::from(2), "Constant coefficient should be 2");
-        assert_eq!(poly.coeffs[1], Fr::from(-3), "Linear coefficient should be -3");
-        assert_eq!(poly.coeffs[2], Fr::one(), "Quadratic coefficient should be 1");
+        assert_eq!(
+            poly.coeffs[0],
+            Fr::from(2),
+            "Constant coefficient should be 2"
+        );
+        assert_eq!(
+            poly.coeffs[1],
+            Fr::from(-3),
+            "Linear coefficient should be -3"
+        );
+        assert_eq!(
+            poly.coeffs[2],
+            Fr::one(),
+            "Quadratic coefficient should be 1"
+        );
         assert_eq!(poly, poly_from_roots_parallel(&roots));
 
         // Test with random roots
@@ -142,7 +158,10 @@ mod tests {
             println!("poly_from_roots with {count} roots: {:?}", start.elapsed());
             let start = Instant::now();
             let poly_naive = poly_from_roots_parallel(&roots);
-            println!("naive poly_from_roots with {count} roots: {:?}", start.elapsed());
+            println!(
+                "naive poly_from_roots with {count} roots: {:?}",
+                start.elapsed()
+            );
 
             assert_eq!(poly.degree(), count);
             assert_eq!(poly, poly_naive);

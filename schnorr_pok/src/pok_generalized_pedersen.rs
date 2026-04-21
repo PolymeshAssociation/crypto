@@ -56,12 +56,12 @@ use ark_std::{
 };
 use core::ops::Add;
 use digest::Digest;
+#[cfg(feature = "serde")]
+use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use dock_crypto_utils::{
     expect_equality, hashing_utils::field_elem_from_try_and_incr,
     randomized_mult_checker::RandomizedMultChecker,
 };
-#[cfg(feature = "serde")]
-use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(feature = "parallel")]
@@ -76,14 +76,7 @@ pub trait SchnorrChallengeContributor {
 /// Commitment to randomness during step 1 of the Schnorr protocol to prove knowledge of 1 or more discrete logs
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Zeroize,
-    ZeroizeOnDrop,
-    CanonicalSerialize,
-    CanonicalDeserialize,
+    Clone, Debug, PartialEq, Eq, Zeroize, ZeroizeOnDrop, CanonicalSerialize, CanonicalDeserialize,
 )]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SchnorrCommitment<G: AffineRepr> {
@@ -135,9 +128,7 @@ impl<G: AffineRepr> SchnorrChallengeContributor for SchnorrCommitment<G> {
 
 /// Response during step 3 of the Schnorr protocol to prove knowledge of 1 or more discrete logs
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SchnorrResponse<G: AffineRepr>(
     #[cfg_attr(feature = "serde", serde_as(as = "Vec<ArkObjectBytes>"))] pub Vec<G::ScalarField>,
@@ -301,7 +292,7 @@ mod tests {
             let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
             resp.verify_using_randomized_mult_checker(bases, y, comm.t, &challenge, &mut checker)
                 .unwrap();
-            assert!(checker.verify());
+            checker.verify().unwrap();
         };
     }
 

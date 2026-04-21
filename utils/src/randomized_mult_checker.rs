@@ -6,9 +6,11 @@ use ark_std::{
     vec::Vec,
     UniformRand,
 };
-use hashbrown::{HashMap, hash_map::Entry};
+use hashbrown::{hash_map::Entry, HashMap};
 #[cfg(feature = "ahash")]
 use ahash::RandomState;
+
+use crate::error::UtilsError;
 
 /// Represents a scalar multiplication check of the form `G1 * a1 + G2 * a2 + G3 * a3 + ... = T`.
 /// Several checks can be added of forms either `G1 * a1 = T1` or `G1 * a1 + H1 * b1 = T2` or `G1 * a1 + H1 * b1 + J1 * c1 = T3`
@@ -32,6 +34,10 @@ pub struct RandomizedMultChecker<G: AffineRepr> {
     pub random: G::ScalarField,
     /// The random value to be used for current check. After each check, set `current_random = current_random * random`
     pub current_random: G::ScalarField,
+    /// Flag to detect forgotten `verify()`.
+    verified: bool,
+    /// Flag to detect a canceled checker.
+    cancelled: bool,
 }
 
 impl<G: AffineRepr> RandomizedMultChecker<G> {
@@ -43,6 +49,8 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
             args: HashMap::new(),
             random,
             current_random: G::ScalarField::one(),
+            verified: false,
+            cancelled: false,
         }
     }
 
@@ -97,17 +105,28 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
         self.update_random();
     }
 
-    /// Combine all the checks into a multi-scalar multiplication and return true if the result is 0.
-    pub fn verify(&self) -> bool {
+    /// Combine all the checks into a multi-scalar multiplication and return `Ok` if the result is 0.
+    pub fn verify(mut self) -> Result<(), UtilsError> {
+        self.verified = true;
         let (points, scalars) = self.points_and_scalars_for_msm();
-        G::Group::msm_unchecked(&points, &scalars).is_zero()
+        if G::Group::msm_unchecked(&points, &scalars).is_zero() {
+            Ok(())
+        } else {
+            Err(UtilsError::MultCheckFailed)
+        }
+    }
+
+    /// Cancel the checker. This is useful when the verifier wants to cancel the checker if it is not needed anymore,
+    /// say a different check failed which fails verification anyway
+    pub fn cancel(&mut self) {
+        self.cancelled = true;
     }
 
     pub fn len(&self) -> usize {
         self.args.len()
     }
 
-    pub fn points_and_scalars_for_msm(&self) -> (Vec<G>, Vec<G::ScalarField>){
+    pub fn points_and_scalars_for_msm(&self) -> (Vec<G>, Vec<G::ScalarField>) {
         let mut points = Vec::with_capacity(self.len());
         let mut scalars = Vec::with_capacity(self.len());
         for (_, (s, point, _)) in self.args.iter() {
@@ -147,6 +166,19 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
     }
 }
 
+impl<G: AffineRepr> Drop for RandomizedMultChecker<G> {
+    fn drop(&mut self) {
+        if !self.verified && !self.cancelled && !self.args.is_empty() {
+            // Panic as this code path should never be reached in production and be caught in testing
+            panic!(
+                "RandomizedMultChecker was dropped without calling `verify()`. \
+                This means all accumulated scalar multiplications were never performed. \
+                This indicates a bug in caller's verifier code"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -180,14 +212,14 @@ mod test {
         checker.add_1(g1, &a1, c1);
         checker.add_1(g1, &a2, c2);
         checker.add_1(g1, &a3, c3);
-        assert!(checker.verify());
+        checker.verify().unwrap();
 
         // Checking if g1 * a2 == c3 fails
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
         checker.add_1(g1, &a1, c1);
         checker.add_1(g1, &a2, c2); // this is invalid
         checker.add_1(g1, &a2, c3);
-        assert!(!checker.verify());
+        assert!(checker.verify().is_err());
 
         let c1 = (g1 * a1).into_affine();
         let c2 = (g2 * a2).into_affine();
@@ -197,14 +229,14 @@ mod test {
         checker.add_1(g1, &a1, c1);
         checker.add_1(g2, &a2, c2);
         checker.add_1(g3, &a3, c3);
-        assert!(checker.verify());
+        checker.verify().unwrap();
 
         // Checking if g2 * a3 == c3 fails
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
         checker.add_1(g1, &a1, c1);
         checker.add_1(g2, &a2, c2); // this is invalid
         checker.add_1(g2, &a3, c3);
-        assert!(!checker.verify());
+        assert!(checker.verify().is_err());
 
         let c1 = (g1 * a1 + h1 * a4).into_affine();
         let c2 = (g1 * a2 + h1 * a5).into_affine();
@@ -214,14 +246,14 @@ mod test {
         checker.add_2(g1, &a1, h1, &a4, c1);
         checker.add_2(g1, &a2, h1, &a5, c2);
         checker.add_2(g1, &a3, h1, &a6, c3);
-        assert!(checker.verify());
+        checker.verify().unwrap();
 
         // Checking if g1 * a3 + h1 * a3 == c3 fails
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
         checker.add_2(g1, &a1, h1, &a4, c1);
         checker.add_2(g1, &a2, h1, &a5, c2);
         checker.add_2(g1, &a3, h1, &a3, c3); // this is invalid
-        assert!(!checker.verify());
+        assert!(checker.verify().is_err());
 
         let c1 = (g1 * a1 + h1 * a4).into_affine();
         let c2 = (g2 * a2 + h2 * a5).into_affine();
@@ -231,7 +263,7 @@ mod test {
         checker.add_2(g1, &a1, h1, &a4, c1);
         checker.add_2(g2, &a2, h2, &a5, c2);
         checker.add_2(g3, &a3, h3, &a6, c3);
-        assert!(checker.verify());
+        checker.verify().unwrap();
 
         let c1 = (g1 * a1 + g2 * a2 + g3 * a3).into_affine();
         let c2 = (h1 * a4 + h2 * a5 + h3 * a6).into_affine();
@@ -241,14 +273,14 @@ mod test {
         checker.add_3(g1, &a1, g2, &a2, g3, &a3, c1);
         checker.add_3(h1, &a4, h2, &a5, h3, &a6, c2);
         checker.add_3(g2, &a3, h1, &a1, h2, &a2, c3);
-        assert!(checker.verify());
+        checker.verify().unwrap();
 
         // Checking if g2 * a3 + h1 * a1 + h2 * a1 == c3 fails
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
         checker.add_3(g1, &a1, g2, &a2, g3, &a3, c1);
         checker.add_3(h1, &a4, h2, &a5, h3, &a6, c2);
         checker.add_3(g2, &a3, h1, &a1, h2, &a1, c3); // this is invalid
-        assert!(!checker.verify());
+        assert!(checker.verify().is_err());
 
         let c1 = (g1 * a1).into_affine();
         let c2 = (g2 * a2).into_affine();
@@ -274,12 +306,12 @@ mod test {
         checker.add_3(g1, &a1, g2, &a2, g3, &a3, c9);
         checker.add_3(h1, &a4, h2, &a5, h3, &a6, c10);
         checker.add_3(h1, &a2, h2, &a3, h3, &a4, c11);
-        assert!(checker.verify());
+        checker.verify().unwrap();
 
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
         checker.add_many([g3, h3], [&a3, &a6], c8);
         checker.add_many([g1, g2, g3], [&a1, &a2, &a3], c9);
-        assert!(checker.verify());
+        checker.verify().unwrap();
 
         let minus_g1 = -g1;
         let minus_g2 = -g2;
@@ -293,7 +325,7 @@ mod test {
         checker.add_1(minus_g1, &a2, c2);
         checker.add_1(g2, &a3, c3);
         checker.add_1(minus_g2, &a4, c4);
-        assert!(checker.verify());
+        checker.verify().unwrap();
     }
 
     #[test]
@@ -323,7 +355,7 @@ mod test {
             for j in 0..i {
                 checker.add_2(g[0], &a[j], h[0], &b[j], r[j]);
             }
-            assert!(checker.verify());
+            checker.verify().unwrap();
             println!(
                 "For {} items, RandomizedMultChecker took {:?}",
                 i,
@@ -345,7 +377,7 @@ mod test {
             for j in 0..i {
                 checker.add_2(g[j], &a[j], h[j], &b[j], r[j]);
             }
-            assert!(checker.verify());
+            checker.verify().unwrap();
             println!(
                 "For {} items, RandomizedMultChecker took {:?}",
                 i,
@@ -370,7 +402,7 @@ mod test {
             for j in 0..i {
                 checker.add_3(g[0], &a[j], h[0], &b[j], k[0], &c[j], r[j]);
             }
-            assert!(checker.verify());
+            checker.verify().unwrap();
             println!(
                 "For {} items, RandomizedMultChecker took {:?}",
                 i,
@@ -395,12 +427,42 @@ mod test {
             for j in 0..i {
                 checker.add_3(g[j], &a[j], h[j], &b[j], k[j], &c[j], r[j]);
             }
-            assert!(checker.verify());
+            checker.verify().unwrap();
             println!(
                 "For {} items, RandomizedMultChecker took {:?}",
                 i,
                 start.elapsed()
             );
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn safety() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let g1 = G1Affine::rand(&mut rng);
+        let g2 = G1Affine::rand(&mut rng);
+        let g3 = G1Affine::rand(&mut rng);
+
+        let a1 = Fr::rand(&mut rng);
+        let a2 = Fr::rand(&mut rng);
+        let a3 = Fr::rand(&mut rng);
+
+        let c1 = (g1 * a1).into_affine();
+        let c2 = (g2 * a2).into_affine();
+        let c3 = (g3 * a3).into_affine();
+
+        // The verification should work
+        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
+        checker.add_1(g1, &a1, c1);
+        checker.add_1(g2, &a2, c2);
+        checker.add_1(g3, &a3, c3);
+        checker.verify().unwrap();
+
+        // This should panic since the checker is dropped without calling `verify()`
+        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
+        checker.add_1(g1, &a1, c1);
+        checker.add_1(g2, &a2, c2);
+        checker.add_1(g3, &a3, c3);
     }
 }

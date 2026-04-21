@@ -4,11 +4,9 @@
 //! 2. Hashed Elgamal where the message to be encrypted is a field element.
 //! 3. A more efficient, batched hashed Elgamal where multiple messages, each being a field element, are encrypted for the same public key.  
 
-use crate::{
-    aliases::FullDigest, hashing_utils::hash_to_field,
-};
-use ark_ec::{AffineRepr, CurveGroup};
+use crate::{aliases::FullDigest, hashing_utils::hash_to_field};
 use ark_ec::scalar_mul::BatchMulPreprocessing;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_iter, ops::Neg, rand::RngCore, vec::Vec, UniformRand};
@@ -52,15 +50,7 @@ pub fn keygen<R: RngCore, G: AffineRepr>(
 
 /// Elgamal encryption of a group element `m`
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Default,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Default, Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Ciphertext<G: AffineRepr> {
     /// `m + r * pk`
@@ -127,16 +117,7 @@ impl<G: AffineRepr> Ciphertext<G> {
 /// Hashed Elgamal. Encryption of a field element `m`. The shared secret is hashed to a field element
 /// and the result is added to the message to get the ciphertext.
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Default,
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct HashedElgamalCiphertext<G: AffineRepr> {
     /// `m + Hash(r * pk)`
@@ -188,14 +169,18 @@ impl<G: AffineRepr> HashedElgamalCiphertext<G> {
         public_key: &G,
         gen: &G,
     ) -> Self {
-        let shared_secret = <G as AffineRepr>::mul_bigint(public_key, randomness.into_bigint()).into_affine();
+        let shared_secret =
+            <G as AffineRepr>::mul_bigint(public_key, randomness.into_bigint()).into_affine();
         Self {
             encrypted: Self::otp::<D>(shared_secret) + msg,
             eph_pk: <G as AffineRepr>::mul_bigint(gen, randomness.into_bigint()).into_affine(),
         }
     }
 
-    pub fn decrypt<D: FullDigest>(&self, secret_key: &<G as AffineRepr>::ScalarField) -> <G as AffineRepr>::ScalarField {
+    pub fn decrypt<D: FullDigest>(
+        &self,
+        secret_key: &<G as AffineRepr>::ScalarField,
+    ) -> <G as AffineRepr>::ScalarField {
         let shared_secret = self.eph_pk.mul(secret_key).into_affine();
         self.encrypted - Self::otp::<D>(shared_secret)
     }
@@ -215,15 +200,7 @@ impl<G: AffineRepr> HashedElgamalCiphertext<G> {
 /// public key as there is only 1 shared secret created by a scalar multiplication and one randomness chosen
 /// by the encryptor
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[derive(
-    Default,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    CanonicalSerialize,
-    CanonicalDeserialize,
-)]
+#[derive(Default, Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BatchedHashedElgamalCiphertext<G: AffineRepr> {
     /// `m_i + Hash((r * pk) || i)`
@@ -282,7 +259,10 @@ impl<G: AffineRepr> BatchedHashedElgamalCiphertext<G> {
         }
     }
 
-    pub fn decrypt<D: FullDigest>(&self, secret_key: &<G as AffineRepr>::ScalarField) -> Vec<<G as AffineRepr>::ScalarField> {
+    pub fn decrypt<D: FullDigest>(
+        &self,
+        secret_key: &<G as AffineRepr>::ScalarField,
+    ) -> Vec<<G as AffineRepr>::ScalarField> {
         let shared_secret = self.eph_pk.mul(secret_key).into_affine();
         cfg_iter!(self.encrypted)
             .enumerate()
