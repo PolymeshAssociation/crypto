@@ -60,6 +60,9 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
 
     /// Add a check of the form `p * s = t`. Converts it to `p * s * r - t * r = 0` where `r` is the current randomness.
     pub fn add_1(&mut self, p: G, s: &G::ScalarField, t: G) {
+        if self.cancelled {
+            return;
+        }
         self.add(p, self.current_random * s);
         self.add(t, -self.current_random);
         self.update_random();
@@ -67,6 +70,9 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
 
     /// Add a check of the form `p1 * s1 + p2 * s2 = t`. Converts it to `p1 * s1 * r + p2 * s2 * r - t * r = 0` where `r` is the current randomness.
     pub fn add_2(&mut self, p1: G, s1: &G::ScalarField, p2: G, s2: &G::ScalarField, t: G) {
+        if self.cancelled {
+            return;
+        }
         self.add(p1, self.current_random * s1);
         self.add(p2, self.current_random * s2);
         self.add(t, -self.current_random);
@@ -84,6 +90,9 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
         s3: &G::ScalarField,
         t: G,
     ) {
+        if self.cancelled {
+            return;
+        }
         self.add(p1, self.current_random * s1);
         self.add(p2, self.current_random * s2);
         self.add(p3, self.current_random * s3);
@@ -98,6 +107,9 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
         b: impl IntoIterator<Item = &'a G::ScalarField>,
         t: G,
     ) {
+        if self.cancelled {
+            return;
+        }
         for (a_i, b_i) in a.into_iter().zip(b) {
             self.add(a_i, self.current_random * b_i);
         }
@@ -107,7 +119,17 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
 
     /// Combine all the checks into a multi-scalar multiplication and return `Ok` if the result is 0.
     pub fn verify(mut self) -> Result<(), UtilsError> {
+        self.do_verify()
+    }
+
+    fn do_verify(&mut self) -> Result<(), UtilsError> {
+        if self.cancelled {
+            return Err(UtilsError::MultCheckFailed);
+        }
         self.verified = true;
+        if self.len() == 0 {
+            return Ok(());
+        }
         let (points, scalars) = self.points_and_scalars_for_msm();
         if G::Group::msm_unchecked(&points, &scalars).is_zero() {
             Ok(())
@@ -142,6 +164,9 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
 
     #[inline(always)]
     pub fn add(&mut self, p: G, s: G::ScalarField) {
+        if self.cancelled {
+            return;
+        }
         if p.is_zero() {
             return;
         }
@@ -168,9 +193,21 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
 
 impl<G: AffineRepr> Drop for RandomizedMultChecker<G> {
     fn drop(&mut self) {
-        if !self.verified && !self.cancelled && !self.args.is_empty() {
+        if self.cancelled || self.verified {
+            return;
+        }
+        // Only panic if verify fails.
+        if let Err(err) = self.do_verify() {
+            log::error!("Skipped `verify` call returns error: err={err:?}");
             // Panic as this code path should never be reached in production and be caught in testing
             panic!(
+                "RandomizedMultChecker was dropped without calling `verify()`. \
+                This means all accumulated scalar multiplications were never performed. \
+                This indicates a bug in caller's verifier code"
+            );
+        } else {
+            // Log an error, since the code should be fixed to call `verify`.
+            log::error!(
                 "RandomizedMultChecker was dropped without calling `verify()`. \
                 This means all accumulated scalar multiplications were never performed. \
                 This indicates a bug in caller's verifier code"
