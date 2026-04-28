@@ -1,3 +1,5 @@
+#[cfg(feature = "ahash")]
+use ahash::RandomState;
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::{One, Zero};
 use ark_std::{
@@ -7,10 +9,180 @@ use ark_std::{
     UniformRand,
 };
 use hashbrown::{hash_map::Entry, HashMap};
-#[cfg(feature = "ahash")]
-use ahash::RandomState;
 
 use crate::error::UtilsError;
+
+/// A guard for `RandomizedMultChecker` that ensures `verify()` is called at the end of the scope.
+///
+/// The guard pattern is used to ensure that `verify()` is always called, even if the caller forgets to call it explicitly.
+/// The `with` and `with_err` methods take a closure that performs the checks and returns a result.
+/// If the closure returns an error, the checker is cancelled and the error is returned.
+/// If the closure returns `Ok`, the checker is verified and the result is returned.
+/// This pattern ensures that `verify()` is always called, and if it fails, it will return an error.
+///
+/// Example usage:
+/// ```rust
+/// let mut rng = StdRng::seed_from_u64(0u64);
+/// let checker = RandomizedMultCheckerGuard::new_using_rng(&mut rng);
+/// checker.with(|checker| {
+///     proof.verify(checker)?;
+///     Ok(())
+/// })?;
+/// ```
+#[derive(Debug)]
+pub struct RandomizedMultCheckerGuard<G: AffineRepr> {
+    inner: RandomizedMultChecker<G>,
+}
+
+impl<G: AffineRepr> RandomizedMultCheckerGuard<G> {
+    /// Create a new `RandomizedMultCheckerGuard` with the given random value.
+    pub fn new(random: G::ScalarField) -> Self {
+        Self {
+            inner: RandomizedMultChecker::_new(random),
+        }
+    }
+
+    /// Create a new `RandomizedMultCheckerGuard` with a random value generated using the given RNG.
+    pub fn new_using_rng<R: Rng>(rng: &mut R) -> Self {
+        Self::new(G::ScalarField::rand(rng))
+    }
+
+    /// Run the given closure with the inner `RandomizedMultChecker`.
+    pub fn with<O, E: From<UtilsError>>(
+        mut self,
+        f: impl FnOnce(&mut RandomizedMultChecker<G>) -> Result<O, E>,
+    ) -> Result<O, E> {
+        match f(&mut self.inner) {
+            Ok(result) => {
+                self.inner.verify()?;
+                Ok(result)
+            }
+            Err(err) => {
+                self.inner.cancel();
+                Err(err)
+            }
+        }
+    }
+
+    /// Run the given closure with the inner `RandomizedMultChecker`, and return the given error if verification fails.
+    pub fn with_err<O, E>(
+        mut self,
+        err: E,
+        f: impl FnOnce(&mut RandomizedMultChecker<G>) -> Result<O, E>,
+    ) -> Result<O, E> {
+        match f(&mut self.inner) {
+            Ok(result) => {
+                self.inner.verify().map_err(|_| err)?;
+                Ok(result)
+            }
+            Err(err) => {
+                self.inner.cancel();
+                Err(err)
+            }
+        }
+    }
+}
+
+/// A guard for a pair of `RandomizedMultChecker` that ensures `verify()` is called for both checkers at the end of the scope.
+///
+/// This is useful when there are two separate multi-scalar multiplication checks that need to be performed together, say one for G1 and one for G2 in a pairing check.
+/// The `with` and `with_err` methods take a closure that performs the checks and returns a result.
+/// If the closure returns an error, both checkers are cancelled and the error is returned.
+/// If the closure returns `Ok`, both checkers are verified and the result is returned.
+/// This pattern ensures that `verify()` is always called for both checkers, and if it fails, it will return an error.
+///
+/// Example usage:
+/// ```rust
+/// let mut rng = StdRng::seed_from_u64(0u64);
+/// let checker = PairRandomizedMultCheckerGuard::new_using_rng(&mut rng);
+/// checker.with(|(checker0, checker1)| {
+///     proof.verify(checker0, checker1)?;
+///     Ok(())
+/// })?;
+/// ```
+#[derive(Debug)]
+pub struct PairRandomizedMultCheckerGuard<G0: AffineRepr, G1: AffineRepr> {
+    inner0: RandomizedMultChecker<G0>,
+    inner1: RandomizedMultChecker<G1>,
+}
+
+impl<G0: AffineRepr, G1: AffineRepr> PairRandomizedMultCheckerGuard<G0, G1> {
+    /// Create a new `PairRandomizedMultCheckerGuard` with the given random values.
+    pub fn new(random0: G0::ScalarField, random1: G1::ScalarField) -> Self {
+        Self {
+            inner0: RandomizedMultChecker::_new(random0),
+            inner1: RandomizedMultChecker::_new(random1),
+        }
+    }
+
+    /// Create a new `PairRandomizedMultCheckerGuard` with the random values generated using the given RNG.
+    pub fn new_using_rng<R: Rng>(rng: &mut R) -> Self {
+        Self::new(G0::ScalarField::rand(rng), G1::ScalarField::rand(rng))
+    }
+
+    /// Run the given closure with the pair of inner `RandomizedMultChecker`.
+    pub fn with<O, E: From<UtilsError>>(
+        mut self,
+        f: impl FnOnce(
+            (
+                &mut RandomizedMultChecker<G0>,
+                &mut RandomizedMultChecker<G1>,
+            ),
+        ) -> Result<O, E>,
+    ) -> Result<O, E> {
+        match f((&mut self.inner0, &mut self.inner1)) {
+            Ok(result) => {
+                match self.inner0.verify() {
+                    Ok(_) => (),
+                    Err(err) => {
+                        // Need to cancel the other checker as well to avoid panicking in its Drop impl since verify is not called.
+                        self.inner1.cancel();
+                        return Err(err.into());
+                    }
+                }
+                self.inner1.verify()?;
+                Ok(result)
+            }
+            Err(err) => {
+                self.inner0.cancel();
+                self.inner1.cancel();
+                Err(err)
+            }
+        }
+    }
+
+    /// Run the given closure with the pair of inner `RandomizedMultChecker`, and return the given error if verification fails.
+    pub fn with_err<O, E>(
+        mut self,
+        err: E,
+        f: impl FnOnce(
+            (
+                &mut RandomizedMultChecker<G0>,
+                &mut RandomizedMultChecker<G1>,
+            ),
+        ) -> Result<O, E>,
+    ) -> Result<O, E> {
+        match f((&mut self.inner0, &mut self.inner1)) {
+            Ok(result) => {
+                match self.inner0.verify() {
+                    Ok(_) => (),
+                    Err(_) => {
+                        // Need to cancel the other checker as well to avoid panicking in its Drop impl since verify is not called.
+                        self.inner1.cancel();
+                        return Err(err);
+                    }
+                }
+                self.inner1.verify().map_err(|_| err)?;
+                Ok(result)
+            }
+            Err(err) => {
+                self.inner0.cancel();
+                self.inner1.cancel();
+                Err(err)
+            }
+        }
+    }
+}
 
 /// Represents a scalar multiplication check of the form `G1 * a1 + G2 * a2 + G3 * a3 + ... = T`.
 /// Several checks can be added of forms either `G1 * a1 = T1` or `G1 * a1 + H1 * b1 = T2` or `G1 * a1 + H1 * b1 + J1 * c1 = T3`
@@ -21,7 +193,7 @@ use crate::error::UtilsError;
 /// a single check is created as `G1 * a1 - T1 + G1 * a2 * r + H1 * b2 * r - T2 * r + G1 * a3 * r^2 + H2 * b3 * r^2 + J1 * c3 * r^2 - T3 * r^2 + G1 * a4 * r^3 + H2 * b4 * r^3 + J2 * c4 * r^3 - T4 * r^3 = 0`
 /// where `r` is a random value and so are`r^2`, `r^3`
 /// The single check above is simplified by combining terms of `G1`, `H1`, etc to reduce the size of the multi-scalar multiplication
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RandomizedMultChecker<G: AffineRepr> {
     /// Verification will expect the multi-scalar multiplication of key-value pairs to be one.
     /// x-coordinate -> (scalar, point, y-coordinate)
@@ -41,7 +213,7 @@ pub struct RandomizedMultChecker<G: AffineRepr> {
 }
 
 impl<G: AffineRepr> RandomizedMultChecker<G> {
-    pub fn new(random: G::ScalarField) -> Self {
+    fn _new(random: G::ScalarField) -> Self {
         Self {
             #[cfg(feature = "ahash")]
             args: HashMap::with_hasher(RandomState::new()),
@@ -54,8 +226,14 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
         }
     }
 
+    #[deprecated = "Use `RandomizedMultCheckerGuard::new` or `RandomizedMultCheckerGuard::new_using_rng` instead"]
+    pub fn new(random: G::ScalarField) -> Self {
+        Self::_new(random)
+    }
+
+    #[deprecated = "Use `RandomizedMultCheckerGuard::new` or `RandomizedMultCheckerGuard::new_using_rng` instead"]
     pub fn new_using_rng<R: Rng>(rng: &mut R) -> Self {
-        Self::new(G::ScalarField::rand(rng))
+        Self::_new(G::ScalarField::rand(rng))
     }
 
     /// Add a check of the form `p * s = t`. Converts it to `p * s * r - t * r = 0` where `r` is the current randomness.
@@ -221,7 +399,10 @@ mod test {
     use super::*;
     use ark_bls12_381::{Fr, G1Affine};
     use ark_ec::CurveGroup;
-    use ark_std::{rand::rngs::StdRng, rand::SeedableRng, UniformRand};
+    use ark_std::{
+        rand::{rngs::StdRng, SeedableRng},
+        UniformRand,
+    };
     use std::time::Instant;
 
     #[test]
@@ -245,79 +426,97 @@ mod test {
         let c2 = (g1 * a2).into_affine();
         let c3 = (g1 * a3).into_affine();
 
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_1(g1, &a1, c1);
-        checker.add_1(g1, &a2, c2);
-        checker.add_1(g1, &a3, c3);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_1(g1, &a1, c1);
+            checker.add_1(g1, &a2, c2);
+            checker.add_1(g1, &a3, c3);
+            Ok(())
+        });
+        assert!(res.is_ok());
 
         // Checking if g1 * a2 == c3 fails
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_1(g1, &a1, c1);
-        checker.add_1(g1, &a2, c2); // this is invalid
-        checker.add_1(g1, &a2, c3);
-        assert!(checker.verify().is_err());
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_1(g1, &a1, c1);
+            checker.add_1(g1, &a2, c2); // this is invalid
+            checker.add_1(g1, &a2, c3);
+            Ok(())
+        });
+        assert!(res.is_err());
 
         let c1 = (g1 * a1).into_affine();
         let c2 = (g2 * a2).into_affine();
         let c3 = (g3 * a3).into_affine();
 
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_1(g1, &a1, c1);
-        checker.add_1(g2, &a2, c2);
-        checker.add_1(g3, &a3, c3);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_1(g1, &a1, c1);
+            checker.add_1(g2, &a2, c2);
+            checker.add_1(g3, &a3, c3);
+            Ok(())
+        });
+        assert!(res.is_ok());
 
         // Checking if g2 * a3 == c3 fails
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_1(g1, &a1, c1);
-        checker.add_1(g2, &a2, c2); // this is invalid
-        checker.add_1(g2, &a3, c3);
-        assert!(checker.verify().is_err());
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_1(g1, &a1, c1);
+            checker.add_1(g2, &a2, c2); // this is invalid
+            checker.add_1(g2, &a3, c3);
+            Ok(())
+        });
+        assert!(res.is_err());
 
         let c1 = (g1 * a1 + h1 * a4).into_affine();
         let c2 = (g1 * a2 + h1 * a5).into_affine();
         let c3 = (g1 * a3 + h1 * a6).into_affine();
 
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_2(g1, &a1, h1, &a4, c1);
-        checker.add_2(g1, &a2, h1, &a5, c2);
-        checker.add_2(g1, &a3, h1, &a6, c3);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_2(g1, &a1, h1, &a4, c1);
+            checker.add_2(g1, &a2, h1, &a5, c2);
+            checker.add_2(g1, &a3, h1, &a6, c3);
+            Ok(())
+        });
+        assert!(res.is_ok());
 
         // Checking if g1 * a3 + h1 * a3 == c3 fails
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_2(g1, &a1, h1, &a4, c1);
-        checker.add_2(g1, &a2, h1, &a5, c2);
-        checker.add_2(g1, &a3, h1, &a3, c3); // this is invalid
-        assert!(checker.verify().is_err());
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_2(g1, &a1, h1, &a4, c1);
+            checker.add_2(g1, &a2, h1, &a5, c2);
+            checker.add_2(g1, &a3, h1, &a3, c3); // this is invalid
+            Ok(())
+        });
+        assert!(res.is_err());
 
         let c1 = (g1 * a1 + h1 * a4).into_affine();
         let c2 = (g2 * a2 + h2 * a5).into_affine();
         let c3 = (g3 * a3 + h3 * a6).into_affine();
 
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_2(g1, &a1, h1, &a4, c1);
-        checker.add_2(g2, &a2, h2, &a5, c2);
-        checker.add_2(g3, &a3, h3, &a6, c3);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_2(g1, &a1, h1, &a4, c1);
+            checker.add_2(g2, &a2, h2, &a5, c2);
+            checker.add_2(g3, &a3, h3, &a6, c3);
+            Ok(())
+        });
+        assert!(res.is_ok());
 
         let c1 = (g1 * a1 + g2 * a2 + g3 * a3).into_affine();
         let c2 = (h1 * a4 + h2 * a5 + h3 * a6).into_affine();
         let c3 = (g2 * a3 + h1 * a1 + h2 * a2).into_affine();
 
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_3(g1, &a1, g2, &a2, g3, &a3, c1);
-        checker.add_3(h1, &a4, h2, &a5, h3, &a6, c2);
-        checker.add_3(g2, &a3, h1, &a1, h2, &a2, c3);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_3(g1, &a1, g2, &a2, g3, &a3, c1);
+            checker.add_3(h1, &a4, h2, &a5, h3, &a6, c2);
+            checker.add_3(g2, &a3, h1, &a1, h2, &a2, c3);
+            Ok(())
+        });
+        assert!(res.is_ok());
 
         // Checking if g2 * a3 + h1 * a1 + h2 * a1 == c3 fails
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_3(g1, &a1, g2, &a2, g3, &a3, c1);
-        checker.add_3(h1, &a4, h2, &a5, h3, &a6, c2);
-        checker.add_3(g2, &a3, h1, &a1, h2, &a1, c3); // this is invalid
-        assert!(checker.verify().is_err());
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_3(g1, &a1, g2, &a2, g3, &a3, c1);
+            checker.add_3(h1, &a4, h2, &a5, h3, &a6, c2);
+            checker.add_3(g2, &a3, h1, &a1, h2, &a1, c3); // this is invalid
+            Ok(())
+        });
+        assert!(res.is_err());
 
         let c1 = (g1 * a1).into_affine();
         let c2 = (g2 * a2).into_affine();
@@ -331,24 +530,28 @@ mod test {
         let c10 = (h1 * a4 + h2 * a5 + h3 * a6).into_affine();
         let c11 = (h1 * a2 + h2 * a3 + h3 * a4).into_affine();
 
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_1(g1, &a1, c1);
-        checker.add_1(g2, &a2, c2);
-        checker.add_2(g1, &a1, h1, &a4, c3);
-        checker.add_2(g1, &a2, h1, &a5, c4);
-        checker.add_2(g1, &a3, h1, &a6, c5);
-        checker.add_2(g1, &a1, h1, &a4, c6);
-        checker.add_2(g2, &a2, h2, &a5, c7);
-        checker.add_2(g3, &a3, h3, &a6, c8);
-        checker.add_3(g1, &a1, g2, &a2, g3, &a3, c9);
-        checker.add_3(h1, &a4, h2, &a5, h3, &a6, c10);
-        checker.add_3(h1, &a2, h2, &a3, h3, &a4, c11);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_1(g1, &a1, c1);
+            checker.add_1(g2, &a2, c2);
+            checker.add_2(g1, &a1, h1, &a4, c3);
+            checker.add_2(g1, &a2, h1, &a5, c4);
+            checker.add_2(g1, &a3, h1, &a6, c5);
+            checker.add_2(g1, &a1, h1, &a4, c6);
+            checker.add_2(g2, &a2, h2, &a5, c7);
+            checker.add_2(g3, &a3, h3, &a6, c8);
+            checker.add_3(g1, &a1, g2, &a2, g3, &a3, c9);
+            checker.add_3(h1, &a4, h2, &a5, h3, &a6, c10);
+            checker.add_3(h1, &a2, h2, &a3, h3, &a4, c11);
+            Ok(())
+        });
+        assert!(res.is_ok());
 
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_many([g3, h3], [&a3, &a6], c8);
-        checker.add_many([g1, g2, g3], [&a1, &a2, &a3], c9);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_many([g3, h3], [&a3, &a6], c8);
+            checker.add_many([g1, g2, g3], [&a1, &a2, &a3], c9);
+            Ok(())
+        });
+        assert!(res.is_ok());
 
         let minus_g1 = -g1;
         let minus_g2 = -g2;
@@ -357,12 +560,58 @@ mod test {
         let c3 = (g2 * a3).into_affine();
         let c4 = (minus_g2 * a4).into_affine();
 
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_1(g1, &a1, c1);
-        checker.add_1(minus_g1, &a2, c2);
-        checker.add_1(g2, &a3, c3);
-        checker.add_1(minus_g2, &a4, c4);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_1(g1, &a1, c1);
+            checker.add_1(minus_g1, &a2, c2);
+            checker.add_1(g2, &a3, c3);
+            checker.add_1(minus_g2, &a4, c4);
+            Ok(())
+        });
+        assert!(res.is_ok());
+    }
+
+    /// Test the paired checkers together
+    #[test]
+    fn pair_checker() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let g1 = G1Affine::rand(&mut rng);
+        let h1 = G1Affine::rand(&mut rng);
+        let a1 = Fr::rand(&mut rng);
+        let b1 = Fr::rand(&mut rng);
+        let c1 = (g1 * a1 + h1 * b1).into_affine();
+
+        // Both checkers should pass
+        let res = PairRandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err(
+            (),
+            |(checker0, checker1)| {
+                checker0.add_2(g1, &a1, h1, &b1, c1);
+                checker1.add_2(h1, &b1, g1, &a1, c1);
+                Ok(())
+            },
+        );
+        assert!(res.is_ok());
+
+        // The first checker fails, the second checker should be cancelled and not panic in its Drop impl
+        let res = PairRandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err(
+            (),
+            |(checker0, checker1)| {
+                checker0.add_2(h1, &a1, h1, &b1, c1); // this is invalid
+                checker1.add_2(g1, &b1, g1, &a1, c1); // this is also invalid but should be cancelled and not panic in Drop
+                Ok(())
+            },
+        );
+        assert!(res.is_err());
+
+        // The first checker is valid, but the second checker fails.
+        let res = PairRandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err(
+            (),
+            |(checker0, checker1)| {
+                checker0.add_2(g1, &a1, h1, &b1, c1); // this is valid
+                checker1.add_2(g1, &b1, g1, &a1, c1); // this is invalid
+                Ok(())
+            },
+        );
+        assert!(res.is_err());
     }
 
     #[test]
@@ -388,11 +637,13 @@ mod test {
             println!("For {} items, naive check took {:?}", i, start.elapsed());
 
             let start = Instant::now();
-            let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-            for j in 0..i {
-                checker.add_2(g[0], &a[j], h[0], &b[j], r[j]);
-            }
-            checker.verify().unwrap();
+            let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+                for j in 0..i {
+                    checker.add_2(g[0], &a[j], h[0], &b[j], r[j]);
+                }
+                Ok(())
+            });
+            assert!(res.is_ok());
             println!(
                 "For {} items, RandomizedMultChecker took {:?}",
                 i,
@@ -410,11 +661,13 @@ mod test {
             println!("For {} items, naive check took {:?}", i, start.elapsed());
 
             let start = Instant::now();
-            let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-            for j in 0..i {
-                checker.add_2(g[j], &a[j], h[j], &b[j], r[j]);
-            }
-            checker.verify().unwrap();
+            let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+                for j in 0..i {
+                    checker.add_2(g[j], &a[j], h[j], &b[j], r[j]);
+                }
+                Ok(())
+            });
+            assert!(res.is_ok());
             println!(
                 "For {} items, RandomizedMultChecker took {:?}",
                 i,
@@ -435,11 +688,13 @@ mod test {
             println!("For {} items, naive check took {:?}", i, start.elapsed());
 
             let start = Instant::now();
-            let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-            for j in 0..i {
-                checker.add_3(g[0], &a[j], h[0], &b[j], k[0], &c[j], r[j]);
-            }
-            checker.verify().unwrap();
+            let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+                for j in 0..i {
+                    checker.add_3(g[0], &a[j], h[0], &b[j], k[0], &c[j], r[j]);
+                }
+                Ok(())
+            });
+            assert!(res.is_ok());
             println!(
                 "For {} items, RandomizedMultChecker took {:?}",
                 i,
@@ -460,11 +715,13 @@ mod test {
             println!("For {} items, naive check took {:?}", i, start.elapsed());
 
             let start = Instant::now();
-            let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-            for j in 0..i {
-                checker.add_3(g[j], &a[j], h[j], &b[j], k[j], &c[j], r[j]);
-            }
-            checker.verify().unwrap();
+            let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+                for j in 0..i {
+                    checker.add_3(g[j], &a[j], h[j], &b[j], k[j], &c[j], r[j]);
+                }
+                Ok(())
+            });
+            assert!(res.is_ok());
             println!(
                 "For {} items, RandomizedMultChecker took {:?}",
                 i,
@@ -490,16 +747,19 @@ mod test {
         let c3 = (g3 * a3).into_affine();
 
         // The verification should work
-        let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-        checker.add_1(g1, &a1, c1);
-        checker.add_1(g2, &a2, c2);
-        checker.add_1(g3, &a3, c3);
-        checker.verify().unwrap();
+        let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_1(g1, &a1, c1);
+            checker.add_1(g2, &a2, c2);
+            checker.add_1(g3, &a3, c3);
+            Ok(())
+        });
+        assert!(res.is_ok());
 
         // This should panic since the checker is dropped without calling `verify()`
+        #[allow(deprecated)]
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
         checker.add_1(g1, &a1, c1);
-        checker.add_1(g2, &a2, c2);
-        checker.add_1(g3, &a3, c3);
+        checker.add_1(g2, &a3, c2);
+        checker.add_1(g3, &a2, c3);
     }
 }
