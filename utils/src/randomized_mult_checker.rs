@@ -81,6 +81,29 @@ impl<G: AffineRepr> RandomizedMultCheckerGuard<G> {
             }
         }
     }
+
+    /// Run the given closure with the inner `RandomizedMultChecker`, and return the given error if verification fails.
+    /// The `v` closure allows the caller to perform custom verification of the checker.
+    pub fn with_verify<O, E: From<UtilsError>>(
+        mut self,
+        f: impl FnOnce(&mut RandomizedMultChecker<G>) -> Result<O, E>,
+        v: impl FnOnce(&mut RandomizedMultChecker<G>) -> Result<(), E>,
+    ) -> Result<O, E> {
+        match f(&mut self.inner) {
+            Ok(result) => {
+                v(&mut self.inner)?;
+                if !self.inner.verified {
+                    // If the custom verification did not call `verify()`, we call it here to ensure the check is performed.
+                    self.inner.verify()?;
+                }
+                Ok(result)
+            }
+            Err(err) => {
+                self.inner.cancel();
+                Err(err)
+            }
+        }
+    }
 }
 
 /// A guard for a pair of `RandomizedMultChecker` that ensures `verify()` is called for both checkers at the end of the scope.
@@ -102,16 +125,16 @@ impl<G: AffineRepr> RandomizedMultCheckerGuard<G> {
 /// ```
 #[derive(Debug)]
 pub struct PairRandomizedMultCheckerGuard<G0: AffineRepr, G1: AffineRepr> {
-    inner0: RandomizedMultChecker<G0>,
-    inner1: RandomizedMultChecker<G1>,
+    inner0: RandomizedMultCheckerGuard<G0>,
+    inner1: RandomizedMultCheckerGuard<G1>,
 }
 
 impl<G0: AffineRepr, G1: AffineRepr> PairRandomizedMultCheckerGuard<G0, G1> {
     /// Create a new `PairRandomizedMultCheckerGuard` with the given random values.
     pub fn new(random0: G0::ScalarField, random1: G1::ScalarField) -> Self {
         Self {
-            inner0: RandomizedMultChecker::_new(random0),
-            inner1: RandomizedMultChecker::_new(random1),
+            inner0: RandomizedMultCheckerGuard::new(random0),
+            inner1: RandomizedMultCheckerGuard::new(random1),
         }
     }
 
@@ -122,7 +145,7 @@ impl<G0: AffineRepr, G1: AffineRepr> PairRandomizedMultCheckerGuard<G0, G1> {
 
     /// Run the given closure with the pair of inner `RandomizedMultChecker`.
     pub fn with<O, E: From<UtilsError>>(
-        mut self,
+        self,
         f: impl FnOnce(
             (
                 &mut RandomizedMultChecker<G0>,
@@ -130,30 +153,14 @@ impl<G0: AffineRepr, G1: AffineRepr> PairRandomizedMultCheckerGuard<G0, G1> {
             ),
         ) -> Result<O, E>,
     ) -> Result<O, E> {
-        match f((&mut self.inner0, &mut self.inner1)) {
-            Ok(result) => {
-                match self.inner0.verify() {
-                    Ok(_) => (),
-                    Err(err) => {
-                        // Need to cancel the other checker as well to avoid panicking in its Drop impl since verify is not called.
-                        self.inner1.cancel();
-                        return Err(err.into());
-                    }
-                }
-                self.inner1.verify()?;
-                Ok(result)
-            }
-            Err(err) => {
-                self.inner0.cancel();
-                self.inner1.cancel();
-                Err(err)
-            }
-        }
+        // Start with the second `inner1` checker as the other guard, so that it will be verified after the first checker.
+        self.inner1
+            .with(|checker1| self.inner0.with(|checker0| f((checker0, checker1))))
     }
 
     /// Run the given closure with the pair of inner `RandomizedMultChecker`, and return the given error if verification fails.
-    pub fn with_err<O, E>(
-        mut self,
+    pub fn with_err<O, E: Clone>(
+        self,
         err: E,
         f: impl FnOnce(
             (
@@ -162,22 +169,51 @@ impl<G0: AffineRepr, G1: AffineRepr> PairRandomizedMultCheckerGuard<G0, G1> {
             ),
         ) -> Result<O, E>,
     ) -> Result<O, E> {
-        match f((&mut self.inner0, &mut self.inner1)) {
+        // Start with the second `inner1` checker as the other guard, so that it will be verified after the first checker.
+        self.inner1.with_err(err.clone(), |checker1| {
+            self.inner0
+                .with_err(err, |checker0| f((checker0, checker1)))
+        })
+    }
+
+    pub fn with_verify<O, E: From<UtilsError>>(
+        self,
+        f: impl FnOnce(
+            (
+                &mut RandomizedMultChecker<G0>,
+                &mut RandomizedMultChecker<G1>,
+            ),
+        ) -> Result<O, E>,
+        v: impl FnOnce(
+            (
+                &mut RandomizedMultChecker<G0>,
+                &mut RandomizedMultChecker<G1>,
+            ),
+        ) -> Result<(), E>,
+    ) -> Result<O, E> {
+        let mut inner0 = self.inner0.inner;
+        let mut inner1 = self.inner1.inner;
+        match f((&mut inner0, &mut inner1)) {
             Ok(result) => {
-                match self.inner0.verify() {
-                    Ok(_) => (),
-                    Err(_) => {
-                        // Need to cancel the other checker as well to avoid panicking in its Drop impl since verify is not called.
-                        self.inner1.cancel();
-                        return Err(err);
+                v((&mut inner0, &mut inner1))?;
+                // If the custom verification did not call `verify()`, we call it here to ensure the check is performed.
+                if !inner0.verified {
+                    match inner0.verify() {
+                        Ok(_) => {}
+                        Err(err) => {
+                            inner1.cancel();
+                            return Err(err.into());
+                        }
                     }
                 }
-                self.inner1.verify().map_err(|_| err)?;
+                if !inner1.verified {
+                    inner1.verify()?;
+                }
                 Ok(result)
             }
             Err(err) => {
-                self.inner0.cancel();
-                self.inner1.cancel();
+                inner0.cancel();
+                inner1.cancel();
                 Err(err)
             }
         }
