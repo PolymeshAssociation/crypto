@@ -219,12 +219,15 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
             bases.len(),
             SchnorrError::ExpectedSameSizeSequences
         );
-        let mut full_resp =
-            vec![G::ScalarField::zero(); self.responses.len() + missing_responses.len()];
+        let n = self.responses.len() + missing_responses.len();
+        let mut full_resp = vec![G::ScalarField::zero(); n];
         for (i, r) in missing_responses {
-            // Will ensurer that `self.responses` and `missing_responses` are disjoint
+            // Will ensure that `self.responses` and `missing_responses` are disjoint
             if self.responses.contains_key(&i) {
                 return Err(SchnorrError::FoundCommonIndexInOwnAndReceivedResponses(i));
+            }
+            if i >= n {
+                return Err(SchnorrError::IndexOutOfBounds(i, n))
             }
             full_resp[i] = r;
         }
@@ -520,16 +523,45 @@ mod tests {
             .unwrap();
         resp_2
             .verify_using_randomized_mult_checker(
-                bases_2,
+                bases_2.clone(),
                 y_2,
                 comm_2.t,
                 &challenge,
-                missing_responses,
+                missing_responses.clone(),
                 &mut checker,
             )
             .unwrap();
         checker.verify().unwrap();
+
+        assert!(matches!(
+            resp_2.pre_verify(&bases_2[0..9], missing_responses.clone()),
+            Err(SchnorrError::ExpectedSameSizeSequences(10, 9))
+        ));
+
+        let mut bad_missing_responses = missing_responses.clone();
+        bad_missing_responses.remove(&0);
+        assert!(matches!(
+            resp_2.pre_verify(&bases_2, bad_missing_responses),
+            Err(SchnorrError::ExpectedSameSizeSequences(9, 10))
+        ));
+
+        let mut bad_missing_responses = missing_responses.clone();
+        bad_missing_responses.remove(&0);
+        bad_missing_responses.insert(1, Fr::rand(&mut rng));
+        assert!(matches!(
+            resp_2.pre_verify(&bases_2, bad_missing_responses),
+            Err(SchnorrError::FoundCommonIndexInOwnAndReceivedResponses(1))
+        ));
+
+        let mut bad_missing_responses = missing_responses.clone();
+        bad_missing_responses.remove(&0);
+        bad_missing_responses.insert(10, Fr::rand(&mut rng));
+        assert!(matches!(
+            resp_2.pre_verify(&bases_2, bad_missing_responses),
+            Err(SchnorrError::IndexOutOfBounds(10, 10))
+        ));
     }
+
 
     #[test]
     fn ped_comm_partial() {
