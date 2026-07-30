@@ -21,6 +21,7 @@ pub enum SchnorrError {
     NotAProduct,
     NotASquare,
     NotAnInverse,
+    EmptyDomainSeparator,
 }
 
 impl From<SerializationError> for SchnorrError {

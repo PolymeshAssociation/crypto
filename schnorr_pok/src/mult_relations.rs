@@ -29,7 +29,7 @@
 //! and commitment key have already been included in the challenge.
 //!
 
-use crate::error::SchnorrError;
+use crate::{append_dst, append_labeled, error::SchnorrError};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{Field, One};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -167,10 +167,15 @@ impl<G: AffineRepr> ProductProtocol<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(&self, mut writer: W) -> Result<(), SchnorrError> {
-        self.t_a.serialize_compressed(&mut writer)?;
-        self.t_b.serialize_compressed(&mut writer)?;
-        self.t_c.serialize_compressed(&mut writer)?;
+    pub fn challenge_contribution<W: Write>(
+        &self,
+        dst: &[u8],
+        mut writer: W,
+    ) -> Result<(), SchnorrError> {
+        append_dst(&mut writer, dst)?;
+        append_labeled(&mut writer, b"t_a", &self.t_a)?;
+        append_labeled(&mut writer, b"t_b", &self.t_b)?;
+        append_labeled(&mut writer, b"t_c", &self.t_c)?;
         Ok(())
     }
 
@@ -258,10 +263,15 @@ impl<G: AffineRepr> ProductProof<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(&self, mut writer: W) -> Result<(), SchnorrError> {
-        self.t_a.serialize_compressed(&mut writer)?;
-        self.t_b.serialize_compressed(&mut writer)?;
-        self.t_c.serialize_compressed(&mut writer)?;
+    pub fn challenge_contribution<W: Write>(
+        &self,
+        dst: &[u8],
+        mut writer: W,
+    ) -> Result<(), SchnorrError> {
+        append_dst(&mut writer, dst)?;
+        append_labeled(&mut writer, b"t_a", &self.t_a)?;
+        append_labeled(&mut writer, b"t_b", &self.t_b)?;
+        append_labeled(&mut writer, b"t_c", &self.t_c)?;
         Ok(())
     }
 }
@@ -298,9 +308,14 @@ impl<G: AffineRepr> SquareProtocol<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(&self, mut writer: W) -> Result<(), SchnorrError> {
-        self.t_a.serialize_compressed(&mut writer)?;
-        self.t_a_sqr.serialize_compressed(&mut writer)?;
+    pub fn challenge_contribution<W: Write>(
+        &self,
+        dst: &[u8],
+        mut writer: W,
+    ) -> Result<(), SchnorrError> {
+        append_dst(&mut writer, dst)?;
+        append_labeled(&mut writer, b"t_a", &self.t_a)?;
+        append_labeled(&mut writer, b"t_a_sqr", &self.t_a_sqr)?;
         Ok(())
     }
 
@@ -369,9 +384,14 @@ impl<G: AffineRepr> SquareProof<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(&self, mut writer: W) -> Result<(), SchnorrError> {
-        self.t_a.serialize_compressed(&mut writer)?;
-        self.t_a_sqr.serialize_compressed(&mut writer)?;
+    pub fn challenge_contribution<W: Write>(
+        &self,
+        dst: &[u8],
+        mut writer: W,
+    ) -> Result<(), SchnorrError> {
+        append_dst(&mut writer, dst)?;
+        append_labeled(&mut writer, b"t_a", &self.t_a)?;
+        append_labeled(&mut writer, b"t_a_sqr", &self.t_a_sqr)?;
         Ok(())
     }
 }
@@ -414,10 +434,15 @@ impl<G: AffineRepr> InverseProtocol<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(&self, mut writer: W) -> Result<(), SchnorrError> {
-        self.t_a.serialize_compressed(&mut writer)?;
-        self.t_a_inv.serialize_compressed(&mut writer)?;
-        self.t_one.serialize_compressed(&mut writer)?;
+    pub fn challenge_contribution<W: Write>(
+        &self,
+        dst: &[u8],
+        mut writer: W,
+    ) -> Result<(), SchnorrError> {
+        append_dst(&mut writer, dst)?;
+        append_labeled(&mut writer, b"t_a", &self.t_a)?;
+        append_labeled(&mut writer, b"t_a_inv", &self.t_a_inv)?;
+        append_labeled(&mut writer, b"t_one", &self.t_one)?;
         Ok(())
     }
 
@@ -505,10 +530,15 @@ impl<G: AffineRepr> InverseProof<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(&self, mut writer: W) -> Result<(), SchnorrError> {
-        self.t_a.serialize_compressed(&mut writer)?;
-        self.t_a_inv.serialize_compressed(&mut writer)?;
-        self.t_one.serialize_compressed(&mut writer)?;
+    pub fn challenge_contribution<W: Write>(
+        &self,
+        dst: &[u8],
+        mut writer: W,
+    ) -> Result<(), SchnorrError> {
+        append_dst(&mut writer, dst)?;
+        append_labeled(&mut writer, b"t_a", &self.t_a)?;
+        append_labeled(&mut writer, b"t_a_inv", &self.t_a_inv)?;
+        append_labeled(&mut writer, b"t_one", &self.t_one)?;
         Ok(())
     }
 }
@@ -552,7 +582,7 @@ mod tests {
                 ProductProtocol::init(&mut rng, &a, v_a, v_b, v_c, r_a, r_b, r_c, &comm_key)
                     .unwrap();
             protocol
-                .challenge_contribution(&mut prover_transcript)
+                .challenge_contribution(b"test", &mut prover_transcript)
                 .unwrap();
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
@@ -563,7 +593,7 @@ mod tests {
             verifier_transcript.append(b"b", &b);
             verifier_transcript.append(b"c", &c);
             proof
-                .challenge_contribution(&mut verifier_transcript)
+                .challenge_contribution(b"test", &mut verifier_transcript)
                 .unwrap();
             let challenge = verifier_transcript.challenge_scalar(b"challenge");
             proof.verify(a, b, c, &challenge, &comm_key).unwrap();
@@ -599,7 +629,7 @@ mod tests {
             )
             .unwrap();
             protocol
-                .challenge_contribution(&mut prover_transcript)
+                .challenge_contribution(b"test", &mut prover_transcript)
                 .unwrap();
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
@@ -610,7 +640,7 @@ mod tests {
             verifier_transcript.append(b"b", &a);
             verifier_transcript.append(b"c", &a_sqr);
             proof
-                .challenge_contribution(&mut verifier_transcript)
+                .challenge_contribution(b"test", &mut verifier_transcript)
                 .unwrap();
             let challenge = verifier_transcript.challenge_scalar(b"challenge");
             proof.verify(a, a, a_sqr, &challenge, &comm_key).unwrap();
@@ -653,7 +683,7 @@ mod tests {
             )
             .unwrap();
             protocol
-                .challenge_contribution(&mut prover_transcript)
+                .challenge_contribution(b"test", &mut prover_transcript)
                 .unwrap();
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
@@ -664,7 +694,7 @@ mod tests {
             verifier_transcript.append(b"b", &a_inv);
             verifier_transcript.append(b"c", &one);
             proof
-                .challenge_contribution(&mut verifier_transcript)
+                .challenge_contribution(b"test", &mut verifier_transcript)
                 .unwrap();
             let challenge = verifier_transcript.challenge_scalar(b"challenge");
             proof.verify(a, a_inv, one, &challenge, &comm_key).unwrap();
@@ -695,7 +725,7 @@ mod tests {
             let protocol =
                 SquareProtocol::init(&mut rng, &a, v_a, v_a_sqr, r_a, r_a_sqr, &comm_key).unwrap();
             protocol
-                .challenge_contribution(&mut prover_transcript)
+                .challenge_contribution(b"test", &mut prover_transcript)
                 .unwrap();
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
@@ -705,7 +735,7 @@ mod tests {
             verifier_transcript.append(b"a", &a);
             verifier_transcript.append(b"a^2", &a_sqr);
             proof
-                .challenge_contribution(&mut verifier_transcript)
+                .challenge_contribution(b"test", &mut verifier_transcript)
                 .unwrap();
             let challenge = verifier_transcript.challenge_scalar(b"challenge");
             proof.verify(a, a_sqr, &challenge, &comm_key).unwrap();
@@ -747,7 +777,7 @@ mod tests {
             let protocol =
                 InverseProtocol::init(&mut rng, &a, v_a, v_a_inv, r_a, r_a_inv, &comm_key).unwrap();
             protocol
-                .challenge_contribution(&mut prover_transcript)
+                .challenge_contribution(b"test", &mut prover_transcript)
                 .unwrap();
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
@@ -757,7 +787,7 @@ mod tests {
             verifier_transcript.append(b"a", &a);
             verifier_transcript.append(b"a_inv", &a_inv);
             proof
-                .challenge_contribution(&mut verifier_transcript)
+                .challenge_contribution(b"test", &mut verifier_transcript)
                 .unwrap();
             let challenge = verifier_transcript.challenge_scalar(b"challenge");
             proof.verify(a, a_inv, &challenge, &comm_key).unwrap();
@@ -772,5 +802,41 @@ mod tests {
         }
 
         checker.verify().unwrap()
+    }
+
+    #[test]
+    fn dst_framing() {
+        let mut rng = OsRng::default();
+        let comm_key = PedersenCommitmentKey::<G1Affine>::new::<Blake2b512>(b"test");
+        let v_a = Fr::rand(&mut rng);
+        let r_a = Fr::rand(&mut rng);
+        let v_b = Fr::rand(&mut rng);
+        let r_b = Fr::rand(&mut rng);
+        let v_c = v_a * v_b;
+        let r_c = Fr::rand(&mut rng);
+        let a = comm_key.commit(&v_a, &r_a);
+        let protocol =
+            ProductProtocol::init(&mut rng, &a, v_a, v_b, v_c, r_a, r_b, r_c, &comm_key).unwrap();
+
+        // Empty `dst` is rejected
+        let mut buf = vec![];
+        assert!(matches!(
+            protocol.challenge_contribution(b"", &mut buf),
+            Err(SchnorrError::EmptyDomainSeparator)
+        ));
+
+        // Distinct `dst` yields distinct contribution bytes
+        let mut b1 = vec![];
+        protocol.challenge_contribution(b"rel1", &mut b1).unwrap();
+        let mut b2 = vec![];
+        protocol.challenge_contribution(b"rel2", &mut b2).unwrap();
+        assert_ne!(b1, b2);
+
+        // Protocol and proof produce identical bytes for the same `dst`
+        let challenge = Fr::rand(&mut rng);
+        let proof = protocol.gen_proof(&challenge);
+        let mut b3 = vec![];
+        proof.challenge_contribution(b"rel1", &mut b3).unwrap();
+        assert_eq!(b1, b3);
     }
 }
