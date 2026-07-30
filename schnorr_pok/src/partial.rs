@@ -241,7 +241,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
                 return Err(SchnorrError::FoundCommonIndexInOwnAndReceivedResponses(i));
             }
             if i >= n {
-                return Err(SchnorrError::IndexOutOfBounds(i, n));
+                return Err(SchnorrError::IndexOutOfBounds(i, n))
             }
             full_resp[i] = r;
         }
@@ -574,7 +574,7 @@ mod tests {
             resp_2.pre_verify(&bases_2, bad_missing_responses),
             Err(SchnorrError::IndexOutOfBounds(10, 10))
         ));
-
+      
         let mut bad_resp = resp_2.clone();
         bad_resp.responses.remove(&9);
         bad_resp.responses.insert(10, Fr::rand(&mut rng));
@@ -583,6 +583,7 @@ mod tests {
             Err(SchnorrError::IndexOutOfBounds(10, 10))
         ));
     }
+
 
     #[test]
     fn ped_comm_partial() {
