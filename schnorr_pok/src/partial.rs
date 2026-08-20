@@ -35,8 +35,8 @@ use zeroize::Zeroize;
 pub struct PartialSchnorrResponse<G: AffineRepr> {
     /// Key of the map is the witness index and value is the response for that witnesses.
     #[cfg_attr(feature = "serde", serde_as(as = "BTreeMap<Same, ArkObjectBytes>"))]
-    pub responses: BTreeMap<usize, G::ScalarField>,
-    pub total_responses: usize,
+    pub responses: BTreeMap<u32, G::ScalarField>,
+    pub total_responses: u32,
     /// Commitment to randomness `t` from step 1
     #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
     pub t: G,
@@ -102,12 +102,12 @@ impl<G: AffineRepr> SchnorrCommitment<G> {
                 .blindings
                 .get(i)
                 .ok_or_else(|| SchnorrError::MissingBlindingAtIndex(i))?;
-            responses.insert(i, w * challenge + b);
+            responses.insert(i as u32, w * challenge + b);
             Zeroize::zeroize(&mut w);
         }
         Ok(PartialSchnorrResponse {
             responses,
-            total_responses: self.blindings.len(),
+            total_responses: self.blindings.len() as u32,
             t: self.t,
         })
     }
@@ -195,7 +195,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         let mut ids = BTreeSet::new();
         for i in 0..self.total_responses {
             if !self.responses.contains_key(&i) {
-                ids.insert(i);
+                ids.insert(i as usize);
             }
         }
         ids
@@ -203,7 +203,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
 
     /// Get response for the specified discrete log
     pub fn get_response(&self, idx: usize) -> Result<&G::ScalarField, SchnorrError> {
-        match self.responses.get(&idx) {
+        match self.responses.get(&(idx as u32)) {
             Some(r) => Ok(r),
             None => Err(SchnorrError::MissingResponseAtIndex(idx)),
         }
@@ -224,7 +224,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         missing_responses: BTreeMap<usize, G::ScalarField>,
     ) -> Result<Vec<G::ScalarField>, SchnorrError> {
         expect_equality!(
-            self.total_responses,
+            self.total_responses as usize,
             bases.len(),
             SchnorrError::ExpectedSameSizeSequences
         );
@@ -237,7 +237,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         let mut full_resp = vec![G::ScalarField::zero(); n];
         for (i, r) in missing_responses {
             // Will ensure that `self.responses` and `missing_responses` are disjoint
-            if self.responses.contains_key(&i) {
+            if self.responses.contains_key(&(i as u32)) {
                 return Err(SchnorrError::FoundCommonIndexInOwnAndReceivedResponses(i));
             }
             if i >= n {
@@ -246,10 +246,11 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
             full_resp[i] = r;
         }
         for (i, r) in &self.responses {
-            if *i >= n {
-                return Err(SchnorrError::IndexOutOfBounds(*i, n));
+            let i = *i as usize;
+            if i >= n {
+                return Err(SchnorrError::IndexOutOfBounds(i, n));
             }
-            full_resp[*i] = *r;
+            full_resp[i] = *r;
         }
         Ok(full_resp)
     }
