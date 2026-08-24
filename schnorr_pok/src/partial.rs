@@ -1,6 +1,7 @@
 use crate::{
     discrete_log::{PokDiscreteLogProtocol, PokPedersenCommitmentProtocol},
     error::SchnorrError,
+    pok_generalized_pedersen::commitment_challenge_contribution,
     SchnorrCommitment,
 };
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
@@ -34,8 +35,11 @@ use zeroize::Zeroize;
 pub struct PartialSchnorrResponse<G: AffineRepr> {
     /// Key of the map is the witness index and value is the response for that witnesses.
     #[cfg_attr(feature = "serde", serde_as(as = "BTreeMap<Same, ArkObjectBytes>"))]
-    pub responses: BTreeMap<usize, G::ScalarField>,
-    pub total_responses: usize,
+    pub responses: BTreeMap<u32, G::ScalarField>,
+    pub total_responses: u32,
+    /// Commitment to randomness `t` from step 1
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))]
+    pub t: G,
 }
 
 /// Proof of knowledge of discrete log but does not contain the response as the response comes from another protocol
@@ -98,12 +102,13 @@ impl<G: AffineRepr> SchnorrCommitment<G> {
                 .blindings
                 .get(i)
                 .ok_or_else(|| SchnorrError::MissingBlindingAtIndex(i))?;
-            responses.insert(i, w * challenge + b);
+            responses.insert(i as u32, w * challenge + b);
             Zeroize::zeroize(&mut w);
         }
         Ok(PartialSchnorrResponse {
             responses,
-            total_responses: self.blindings.len(),
+            total_responses: self.blindings.len() as u32,
+            t: self.t,
         })
     }
 }
@@ -150,7 +155,6 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         &self,
         bases: &[G],
         y: &G,
-        t: &G,
         challenge: &G::ScalarField,
         missing_responses: BTreeMap<usize, G::ScalarField>,
     ) -> Result<(), SchnorrError> {
@@ -158,7 +162,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         if (G::Group::msm_unchecked(bases, &full_resp)
             .add(y.mul_bigint((-*challenge).into_bigint())))
         .into_affine()
-            == *t
+            == self.t
         {
             Ok(())
         } else {
@@ -171,7 +175,6 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         &self,
         bases: Vec<G>,
         y: G,
-        t: G,
         challenge: &G::ScalarField,
         missing_responses: BTreeMap<usize, G::ScalarField>,
         rmc: &mut RandomizedMultChecker<G>,
@@ -180,17 +183,19 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         rmc.add_many(
             bases.into_iter().chain(iter::once(y)),
             full_resp.iter().chain(iter::once(&-*challenge)),
-            t,
+            self.t,
         );
         Ok(())
     }
 
     /// Get indices for which it does not have any response. These responses will be fetched from other protocols.
+    /// It allocates the amount of memory linear in `self.total_responses` so ensure that prover can't exploit this.
     pub fn get_missing_response_indices(&self) -> BTreeSet<usize> {
+        // Maybe limit size of `self.total_responses` to a big enough constant
         let mut ids = BTreeSet::new();
         for i in 0..self.total_responses {
             if !self.responses.contains_key(&i) {
-                ids.insert(i);
+                ids.insert(i as usize);
             }
         }
         ids
@@ -198,10 +203,19 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
 
     /// Get response for the specified discrete log
     pub fn get_response(&self, idx: usize) -> Result<&G::ScalarField, SchnorrError> {
-        match self.responses.get(&idx) {
+        match self.responses.get(&(idx as u32)) {
             Some(r) => Ok(r),
             None => Err(SchnorrError::MissingResponseAtIndex(idx)),
         }
+    }
+
+    /// The commitment `t`'s contribution to the challenge.
+    pub fn challenge_contribution<W: Write>(
+        &self,
+        dst: &[u8],
+        writer: W,
+    ) -> Result<(), SchnorrError> {
+        commitment_challenge_contribution(&self.t, dst, writer)
     }
 
     pub fn pre_verify(
@@ -210,7 +224,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         missing_responses: BTreeMap<usize, G::ScalarField>,
     ) -> Result<Vec<G::ScalarField>, SchnorrError> {
         expect_equality!(
-            self.total_responses,
+            self.total_responses as usize,
             bases.len(),
             SchnorrError::ExpectedSameSizeSequences
         );
@@ -223,7 +237,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         let mut full_resp = vec![G::ScalarField::zero(); n];
         for (i, r) in missing_responses {
             // Will ensure that `self.responses` and `missing_responses` are disjoint
-            if self.responses.contains_key(&i) {
+            if self.responses.contains_key(&(i as u32)) {
                 return Err(SchnorrError::FoundCommonIndexInOwnAndReceivedResponses(i));
             }
             if i >= n {
@@ -232,7 +246,11 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
             full_resp[i] = r;
         }
         for (i, r) in &self.responses {
-            full_resp[*i] = *r;
+            let i = *i as usize;
+            if i >= n {
+                return Err(SchnorrError::IndexOutOfBounds(i, n));
+            }
+            full_resp[i] = *r;
         }
         Ok(full_resp)
     }
@@ -269,9 +287,10 @@ impl<G: AffineRepr> PartialPokDiscreteLog<G> {
         &self,
         base: &G,
         y: &G,
+        dst: &[u8],
         writer: W,
     ) -> Result<(), SchnorrError> {
-        PokDiscreteLogProtocol::compute_challenge_contribution(base, y, &self.t, writer)
+        PokDiscreteLogProtocol::compute_challenge_contribution(base, y, &self.t, dst, writer)
     }
 }
 
@@ -320,10 +339,11 @@ impl<G: AffineRepr> PartialPokPedersenCommitment<G> {
         base1: &G,
         base2: &G,
         y: &G,
+        dst: &[u8],
         writer: W,
     ) -> Result<(), SchnorrError> {
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            base1, base2, y, &self.t, writer,
+            base1, base2, y, &self.t, dst, writer,
         )
     }
 }
@@ -372,10 +392,11 @@ impl<G: AffineRepr> Partial1PokPedersenCommitment<G> {
         base1: &G,
         base2: &G,
         y: &G,
+        dst: &[u8],
         writer: W,
     ) -> Result<(), SchnorrError> {
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            base1, base2, y, &self.t, writer,
+            base1, base2, y, &self.t, dst, writer,
         )
     }
 }
@@ -424,10 +445,11 @@ impl<G: AffineRepr> Partial2PokPedersenCommitment<G> {
         base1: &G,
         base2: &G,
         y: &G,
+        dst: &[u8],
         writer: W,
     ) -> Result<(), SchnorrError> {
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            base1, base2, y, &self.t, writer,
+            base1, base2, y, &self.t, dst, writer,
         )
     }
 }
@@ -435,7 +457,9 @@ impl<G: AffineRepr> Partial2PokPedersenCommitment<G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pok_generalized_pedersen::compute_random_oracle_challenge;
+    use crate::{
+        pok_generalized_pedersen::compute_random_oracle_challenge, SchnorrChallengeContributor,
+    };
     use ark_bls12_381::{Fr, G1Affine, G1Projective};
     use ark_ec::VariableBaseMSM;
     use ark_std::{
@@ -489,9 +513,7 @@ mod tests {
         let challenge = Fr::rand(&mut rng);
 
         let resp_1 = comm_1.response(&witnesses_1, &challenge).unwrap();
-        resp_1
-            .is_valid(&bases_1, &y_1, &comm_1.t, &challenge)
-            .unwrap();
+        resp_1.is_valid(&bases_1, &y_1, &challenge).unwrap();
 
         let mut diff_wits = BTreeMap::new();
         for i in 0..count {
@@ -503,13 +525,7 @@ mod tests {
         assert_eq!(resp_2.get_missing_response_indices(), common_wit_indices);
         let missing_responses = resp_1.get_responses(&common_wit_indices).unwrap();
         resp_2
-            .is_valid(
-                &bases_2,
-                &y_2,
-                &comm_2.t,
-                &challenge,
-                missing_responses.clone(),
-            )
+            .is_valid(&bases_2, &y_2, &challenge, missing_responses.clone())
             .unwrap();
 
         for i in common_wit_indices {
@@ -519,13 +535,12 @@ mod tests {
         // Verify using RandomizedMultChecker
         let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
         resp_1
-            .verify_using_randomized_mult_checker(bases_1, y_1, comm_1.t, &challenge, &mut checker)
+            .verify_using_randomized_mult_checker(bases_1, y_1, &challenge, &mut checker)
             .unwrap();
         resp_2
             .verify_using_randomized_mult_checker(
                 bases_2.clone(),
                 y_2,
-                comm_2.t,
                 &challenge,
                 missing_responses.clone(),
                 &mut checker,
@@ -560,6 +575,14 @@ mod tests {
             resp_2.pre_verify(&bases_2, bad_missing_responses),
             Err(SchnorrError::IndexOutOfBounds(10, 10))
         ));
+      
+        let mut bad_resp = resp_2.clone();
+        bad_resp.responses.remove(&9);
+        bad_resp.responses.insert(10, Fr::rand(&mut rng));
+        assert!(matches!(
+            bad_resp.pre_verify(&bases_2, missing_responses.clone()),
+            Err(SchnorrError::IndexOutOfBounds(10, 10))
+        ));
     }
 
 
@@ -588,10 +611,10 @@ mod tests {
 
         let mut chal_contrib_prover = vec![];
         protocol_1
-            .challenge_contribution(&base1, &y_1, &mut chal_contrib_prover)
+            .challenge_contribution(&base1, &y_1, b"test", &mut chal_contrib_prover)
             .unwrap();
         protocol_2
-            .challenge_contribution(&base2, &y_2, &mut chal_contrib_prover)
+            .challenge_contribution(&base2, &y_2, b"test", &mut chal_contrib_prover)
             .unwrap();
         let challenge_prover =
             compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_prover);
@@ -600,10 +623,10 @@ mod tests {
 
         let mut chal_contrib_verifier = vec![];
         proof_1
-            .challenge_contribution(&base1, &y_1, &mut chal_contrib_verifier)
+            .challenge_contribution(&base1, &y_1, b"test", &mut chal_contrib_verifier)
             .unwrap();
         proof_2
-            .challenge_contribution(&base2, &y_2, &mut chal_contrib_verifier)
+            .challenge_contribution(&base2, &y_2, b"test", &mut chal_contrib_verifier)
             .unwrap();
         let challenge_verifier =
             compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_verifier);
@@ -640,16 +663,16 @@ mod tests {
 
         let mut chal_contrib_prover = vec![];
         protocol_1
-            .challenge_contribution(&base1, &base2, &y_1, &mut chal_contrib_prover)
+            .challenge_contribution(&base1, &base2, &y_1, b"test", &mut chal_contrib_prover)
             .unwrap();
         protocol_2
-            .challenge_contribution(&base3, &base4, &y_2, &mut chal_contrib_prover)
+            .challenge_contribution(&base3, &base4, &y_2, b"test", &mut chal_contrib_prover)
             .unwrap();
         protocol_3
-            .challenge_contribution(&base5, &base6, &y_3, &mut chal_contrib_prover)
+            .challenge_contribution(&base5, &base6, &y_3, b"test", &mut chal_contrib_prover)
             .unwrap();
         protocol_4
-            .challenge_contribution(&base7, &base8, &y_4, &mut chal_contrib_prover)
+            .challenge_contribution(&base7, &base8, &y_4, b"test", &mut chal_contrib_prover)
             .unwrap();
         let challenge_prover =
             compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_prover);
@@ -661,16 +684,16 @@ mod tests {
 
         let mut chal_contrib_verifier = vec![];
         proof_1
-            .challenge_contribution(&base1, &base2, &y_1, &mut chal_contrib_verifier)
+            .challenge_contribution(&base1, &base2, &y_1, b"test", &mut chal_contrib_verifier)
             .unwrap();
         proof_2
-            .challenge_contribution(&base3, &base4, &y_2, &mut chal_contrib_verifier)
+            .challenge_contribution(&base3, &base4, &y_2, b"test", &mut chal_contrib_verifier)
             .unwrap();
         proof_3
-            .challenge_contribution(&base5, &base6, &y_3, &mut chal_contrib_verifier)
+            .challenge_contribution(&base5, &base6, &y_3, b"test", &mut chal_contrib_verifier)
             .unwrap();
         proof_4
-            .challenge_contribution(&base7, &base8, &y_4, &mut chal_contrib_verifier)
+            .challenge_contribution(&base7, &base8, &y_4, b"test", &mut chal_contrib_verifier)
             .unwrap();
 
         let challenge_verifier =
@@ -745,5 +768,112 @@ mod tests {
             &mut checker,
         );
         checker.verify().unwrap();
+    }
+
+    #[test]
+    fn dst_framing() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let base1 = G1Affine::rand(&mut rng);
+        let base2 = G1Affine::rand(&mut rng);
+        let witness1 = Fr::rand(&mut rng);
+        let witness2 = Fr::rand(&mut rng);
+        let y = (base1 * witness1 + base2 * witness2).into_affine();
+
+        // PartialPokDiscreteLog
+        let protocol =
+            PokDiscreteLogProtocol::init(witness1, Fr::rand(&mut rng), &base1).gen_partial_proof();
+        let mut buf = vec![];
+        assert!(matches!(
+            protocol.challenge_contribution(&base1, &y, b"", &mut buf),
+            Err(SchnorrError::EmptyDomainSeparator)
+        ));
+        let mut d1 = vec![];
+        protocol
+            .challenge_contribution(&base1, &y, b"rel1", &mut d1)
+            .unwrap();
+        let mut d2 = vec![];
+        protocol
+            .challenge_contribution(&base1, &y, b"rel2", &mut d2)
+            .unwrap();
+        assert_ne!(d1, d2);
+
+        // The three partial Pedersen variants share the same framing; check each rejects an
+        // empty `dst`, separates on `dst`, and matches the full protocol's bytes for a fixed `dst`.
+        let challenge = Fr::rand(&mut rng);
+        let full = PokPedersenCommitmentProtocol::init(
+            witness1,
+            Fr::rand(&mut rng),
+            &base1,
+            witness2,
+            Fr::rand(&mut rng),
+            &base2,
+        );
+        let mut reference = vec![];
+        full.challenge_contribution(&base1, &base2, &y, b"rel1", &mut reference)
+            .unwrap();
+
+        let partial = full.clone().gen_partial_proof();
+        let partial1 = full.clone().gen_partial1_proof(&challenge);
+        let partial2 = full.gen_partial2_proof(&challenge);
+
+        for run in 0..3 {
+            let mut empty = vec![];
+            let empty_res = match run {
+                0 => partial.challenge_contribution(&base1, &base2, &y, b"", &mut empty),
+                1 => partial1.challenge_contribution(&base1, &base2, &y, b"", &mut empty),
+                _ => partial2.challenge_contribution(&base1, &base2, &y, b"", &mut empty),
+            };
+            assert!(matches!(empty_res, Err(SchnorrError::EmptyDomainSeparator)));
+
+            let mut b1 = vec![];
+            let mut b2 = vec![];
+            match run {
+                0 => {
+                    partial
+                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut b1)
+                        .unwrap();
+                    partial
+                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut b2)
+                        .unwrap();
+                }
+                1 => {
+                    partial1
+                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut b1)
+                        .unwrap();
+                    partial1
+                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut b2)
+                        .unwrap();
+                }
+                _ => {
+                    partial2
+                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut b1)
+                        .unwrap();
+                    partial2
+                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut b2)
+                        .unwrap();
+                }
+            }
+            assert_ne!(b1, b2);
+            // `t` is shared with the full protocol, so bytes match for the same `dst`
+            assert_eq!(b1, reference);
+        }
+
+        // PartialSchnorrResponse's (verifier-side) contribution matches SchnorrCommitment's for the
+        // same `t`/`dst`.
+        let bases = vec![base1, base2];
+        let comm = SchnorrCommitment::new(&bases, vec![Fr::rand(&mut rng), Fr::rand(&mut rng)]);
+        let mut witnesses = BTreeMap::new();
+        witnesses.insert(0, witness1);
+        let presp = comm.partial_response(witnesses, &challenge).unwrap();
+        let mut cbytes = vec![];
+        comm.challenge_contribution(b"rel1", &mut cbytes).unwrap();
+        let mut pbytes = vec![];
+        presp.challenge_contribution(b"rel1", &mut pbytes).unwrap();
+        assert_eq!(cbytes, pbytes);
+        let mut buf = vec![];
+        assert!(matches!(
+            presp.challenge_contribution(b"", &mut buf),
+            Err(SchnorrError::EmptyDomainSeparator)
+        ));
     }
 }

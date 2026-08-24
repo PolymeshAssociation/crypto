@@ -11,7 +11,7 @@
 //! Similar protocol would work for proving knowledge of `A2` in `e(A2, B2) = Y2`.
 //!
 
-use crate::error::SchnorrError;
+use crate::{append_dst, append_labeled, error::SchnorrError};
 use ark_ec::{
     pairing::{Pairing, PairingOutput},
     CurveGroup,
@@ -83,9 +83,10 @@ macro_rules! impl_protocol {
                     &self,
                     other: &$other_group,
                     y: &PairingOutput<E>,
+                    dst: &[u8],
                     writer: W,
                 ) -> Result<(), SchnorrError> {
-                    Self::compute_challenge_contribution(other, y, &self.t, writer)
+                    Self::compute_challenge_contribution(other, y, &self.t, dst, writer)
                 }
 
                 pub fn gen_proof(self, challenge: &E::ScalarField) -> $proof<E> {
@@ -99,11 +100,14 @@ macro_rules! impl_protocol {
                     other: &$other_group,
                     y: &PairingOutput<E>,
                     t: &PairingOutput<E>,
+                    dst: &[u8],
                     mut writer: W,
                 ) -> Result<(), SchnorrError> {
-                    other.serialize_compressed(&mut writer)?;
-                    y.serialize_compressed(&mut writer)?;
-                    t.serialize_compressed(writer).map_err(|e| e.into())
+                    append_dst(&mut writer, dst)?;
+                    append_labeled(&mut writer, b"other", other)?;
+                    append_labeled(&mut writer, b"y", y)?;
+                    append_labeled(&mut writer, b"t", t)?;
+                    Ok(())
                 }
             }
 
@@ -124,9 +128,10 @@ macro_rules! impl_protocol {
                     &self,
                     other: &$other_group,
                     y: &PairingOutput<E>,
+                    dst: &[u8],
                     writer: W,
                 ) -> Result<(), SchnorrError> {
-                    $protocol::compute_challenge_contribution(other, y, &self.t, writer)
+                    $protocol::compute_challenge_contribution(other, y, &self.t, dst, writer)
                 }
             }
         }
@@ -192,7 +197,7 @@ mod tests {
                 let protocol = $protocol::<Bls12_381>::init(witness, blinding, base);
                 let mut chal_contrib_prover = vec![];
                 protocol
-                    .challenge_contribution(&base, &y, &mut chal_contrib_prover)
+                    .challenge_contribution(&base, &y, b"test", &mut chal_contrib_prover)
                     .unwrap();
                 test_serialization!($protocol<Bls12_381>, protocol);
 
@@ -202,7 +207,7 @@ mod tests {
 
                 let mut chal_contrib_verifier = vec![];
                 proof
-                    .challenge_contribution(&base, &y, &mut chal_contrib_verifier)
+                    .challenge_contribution(&base, &y, b"test", &mut chal_contrib_verifier)
                     .unwrap();
 
                 let challenge_verifier =
@@ -280,5 +285,42 @@ mod tests {
             G1Prepared,
             pair_g1_g2
         );
+    }
+
+    #[test]
+    fn dst_framing() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let base = G2Affine::rand(&mut rng);
+        let witness = G1Affine::rand(&mut rng);
+        let y = pair_g2_g1!(Bls12_381::pairing, base, witness);
+        let blinding = G1Affine::rand(&mut rng);
+        let protocol =
+            PoKG1DiscreteLogInPairingProtocol::<Bls12_381>::init(witness, blinding, base);
+
+        // Empty `dst` is rejected
+        let mut buf = vec![];
+        assert!(matches!(
+            protocol.challenge_contribution(&base, &y, b"", &mut buf),
+            Err(SchnorrError::EmptyDomainSeparator)
+        ));
+
+        // Distinct `dst` yields distinct contribution bytes
+        let mut b1 = vec![];
+        protocol
+            .challenge_contribution(&base, &y, b"rel1", &mut b1)
+            .unwrap();
+        let mut b2 = vec![];
+        protocol
+            .challenge_contribution(&base, &y, b"rel2", &mut b2)
+            .unwrap();
+        assert_ne!(b1, b2);
+
+        // Prover and proof produce identical bytes for the same `dst`
+        let proof = protocol.gen_proof(&compute_random_oracle_challenge::<Fr, Blake2b512>(&b1));
+        let mut b3 = vec![];
+        proof
+            .challenge_contribution(&base, &y, b"rel1", &mut b3)
+            .unwrap();
+        assert_eq!(b1, b3);
     }
 }

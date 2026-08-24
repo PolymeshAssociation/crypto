@@ -15,7 +15,7 @@
 //! 3. Computes 2 responses `s1 = r1 + c*x1` and `s2 = r2 + c*x2` and sends them to the verifier.
 //! 4. Verifier checks if `G1 * s1 + G2 * s2 = T + Y*c`
 
-use crate::error::SchnorrError;
+use crate::{append_dst, append_labeled, error::SchnorrError};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -118,9 +118,10 @@ impl<G: AffineRepr> PokDiscreteLogProtocol<G> {
         &self,
         base: &G,
         y: &G,
+        dst: &[u8],
         writer: W,
     ) -> Result<(), SchnorrError> {
-        Self::compute_challenge_contribution(base, y, &self.t, writer)
+        Self::compute_challenge_contribution(base, y, &self.t, dst, writer)
     }
 
     pub fn gen_proof(self, challenge: &G::ScalarField) -> PokDiscreteLog<G> {
@@ -135,11 +136,14 @@ impl<G: AffineRepr> PokDiscreteLogProtocol<G> {
         base: &G,
         y: &G,
         t: &G,
+        dst: &[u8],
         mut writer: W,
     ) -> Result<(), SchnorrError> {
-        base.serialize_compressed(&mut writer)?;
-        y.serialize_compressed(&mut writer)?;
-        t.serialize_compressed(writer).map_err(|e| e.into())
+        append_dst(&mut writer, dst)?;
+        append_labeled(&mut writer, b"base", base)?;
+        append_labeled(&mut writer, b"y", y)?;
+        append_labeled(&mut writer, b"t", t)?;
+        Ok(())
     }
 }
 
@@ -148,9 +152,10 @@ impl<G: AffineRepr> PokDiscreteLog<G> {
         &self,
         base: &G,
         y: &G,
+        dst: &[u8],
         writer: W,
     ) -> Result<(), SchnorrError> {
-        PokDiscreteLogProtocol::compute_challenge_contribution(base, y, &self.t, writer)
+        PokDiscreteLogProtocol::compute_challenge_contribution(base, y, &self.t, dst, writer)
     }
 
     /// `base*response - y*challenge == t`
@@ -200,9 +205,10 @@ impl<G: AffineRepr> PokPedersenCommitmentProtocol<G> {
         base1: &G,
         base2: &G,
         y: &G,
+        dst: &[u8],
         writer: W,
     ) -> Result<(), SchnorrError> {
-        Self::compute_challenge_contribution(base1, base2, y, &self.t, writer)
+        Self::compute_challenge_contribution(base1, base2, y, &self.t, dst, writer)
     }
 
     pub fn gen_proof(self, challenge: &G::ScalarField) -> PokPedersenCommitment<G> {
@@ -220,12 +226,14 @@ impl<G: AffineRepr> PokPedersenCommitmentProtocol<G> {
         base2: &G,
         y: &G,
         t: &G,
+        dst: &[u8],
         mut writer: W,
     ) -> Result<(), SchnorrError> {
-        base1.serialize_compressed(&mut writer)?;
-        base2.serialize_compressed(&mut writer)?;
-        y.serialize_compressed(&mut writer)?;
-        t.serialize_compressed(&mut writer)?;
+        append_dst(&mut writer, dst)?;
+        append_labeled(&mut writer, b"base1", base1)?;
+        append_labeled(&mut writer, b"base2", base2)?;
+        append_labeled(&mut writer, b"y", y)?;
+        append_labeled(&mut writer, b"t", t)?;
         Ok(())
     }
 }
@@ -236,10 +244,11 @@ impl<G: AffineRepr> PokPedersenCommitment<G> {
         base1: &G,
         base2: &G,
         y: &G,
+        dst: &[u8],
         writer: W,
     ) -> Result<(), SchnorrError> {
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            base1, base2, y, &self.t, writer,
+            base1, base2, y, &self.t, dst, writer,
         )
     }
 
@@ -309,7 +318,7 @@ mod tests {
                     );
                 let mut chal_contrib_prover = vec![];
                 protocol
-                    .challenge_contribution(&base, &y, &mut chal_contrib_prover)
+                    .challenge_contribution(&base, &y, b"test", &mut chal_contrib_prover)
                     .unwrap();
 
                 test_serialization!(
@@ -323,7 +332,7 @@ mod tests {
 
                 let mut chal_contrib_verifier = vec![];
                 proof
-                    .challenge_contribution(&base, &y, &mut chal_contrib_verifier)
+                    .challenge_contribution(&base, &y, b"test", &mut chal_contrib_verifier)
                     .unwrap();
 
                 let challenge_verifier =
@@ -378,7 +387,7 @@ mod tests {
                     );
                 let mut chal_contrib_prover = vec![];
                 protocol
-                    .challenge_contribution(&base1, &base2, &y, &mut chal_contrib_prover)
+                    .challenge_contribution(&base1, &base2, &y, b"test", &mut chal_contrib_prover)
                     .unwrap();
 
                 test_serialization!(
@@ -392,7 +401,7 @@ mod tests {
 
                 let mut chal_contrib_verifier = vec![];
                 proof
-                    .challenge_contribution(&base1, &base2, &y, &mut chal_contrib_verifier)
+                    .challenge_contribution(&base1, &base2, &y, b"test", &mut chal_contrib_verifier)
                     .unwrap();
 
                 let challenge_verifier =
@@ -432,5 +441,76 @@ mod tests {
 
         check!(G1Affine, G1);
         check!(G2Affine, G2);
+    }
+
+    #[test]
+    fn dst_framing() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let base = <Bls12_381 as Pairing>::G1::rand(&mut rng).into_affine();
+        let witness = Fr::rand(&mut rng);
+        let y = base.mul_bigint(witness.into_bigint()).into_affine();
+        let blinding = Fr::rand(&mut rng);
+        let protocol = PokDiscreteLogProtocol::<<Bls12_381 as Pairing>::G1Affine>::init(
+            witness, blinding, &base,
+        );
+
+        // Empty `dst` is rejected
+        let mut buf = vec![];
+        assert!(matches!(
+            protocol.challenge_contribution(&base, &y, b"", &mut buf),
+            Err(SchnorrError::EmptyDomainSeparator)
+        ));
+
+        // Distinct `dst` yields distinct contribution bytes
+        let mut b1 = vec![];
+        protocol
+            .challenge_contribution(&base, &y, b"rel1", &mut b1)
+            .unwrap();
+        let mut b2 = vec![];
+        protocol
+            .challenge_contribution(&base, &y, b"rel2", &mut b2)
+            .unwrap();
+        assert_ne!(b1, b2);
+
+        // Prover and proof produce identical bytes for the same `dst`
+        let proof = protocol.gen_proof(&compute_random_oracle_challenge::<Fr, Blake2b512>(&b1));
+        let mut b3 = vec![];
+        proof
+            .challenge_contribution(&base, &y, b"rel1", &mut b3)
+            .unwrap();
+        assert_eq!(b1, b3);
+
+        // Same for the Pedersen commitment protocol
+        let base2 = <Bls12_381 as Pairing>::G1::rand(&mut rng).into_affine();
+        let witness2 = Fr::rand(&mut rng);
+        let y2 = (base * witness + base2 * witness2).into_affine();
+        let protocol = PokPedersenCommitmentProtocol::<<Bls12_381 as Pairing>::G1Affine>::init(
+            witness,
+            Fr::rand(&mut rng),
+            &base,
+            witness2,
+            Fr::rand(&mut rng),
+            &base2,
+        );
+        let mut buf = vec![];
+        assert!(matches!(
+            protocol.challenge_contribution(&base, &base2, &y2, b"", &mut buf),
+            Err(SchnorrError::EmptyDomainSeparator)
+        ));
+        let mut p1 = vec![];
+        protocol
+            .challenge_contribution(&base, &base2, &y2, b"rel1", &mut p1)
+            .unwrap();
+        let mut p2 = vec![];
+        protocol
+            .challenge_contribution(&base, &base2, &y2, b"rel2", &mut p2)
+            .unwrap();
+        assert_ne!(p1, p2);
+        let proof = protocol.gen_proof(&compute_random_oracle_challenge::<Fr, Blake2b512>(&p1));
+        let mut p3 = vec![];
+        proof
+            .challenge_contribution(&base, &base2, &y2, b"rel1", &mut p3)
+            .unwrap();
+        assert_eq!(p1, p3);
     }
 }

@@ -43,7 +43,7 @@
 //! and its usage) when multiple relations are involved.
 //!
 
-use crate::error::SchnorrError;
+use crate::{append_dst, append_labeled, error::SchnorrError};
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -70,7 +70,7 @@ use rayon::prelude::*;
 /// Trait implemented by Schnorr-based protocols for returning their contribution to the overall challenge.
 /// i.e. overall challenge is of form Hash({m_i}), and this function returns the bytecode for m_j for some j.
 pub trait SchnorrChallengeContributor {
-    fn challenge_contribution<W: Write>(&self, writer: W) -> Result<(), SchnorrError>;
+    fn challenge_contribution<W: Write>(&self, dst: &[u8], writer: W) -> Result<(), SchnorrError>;
 }
 
 /// Commitment to randomness during step 1 of the Schnorr protocol to prove knowledge of 1 or more discrete logs
@@ -112,8 +112,19 @@ impl<G: AffineRepr> SchnorrCommitment<G> {
             .zip(cfg_iter!(witnesses))
             .map(|(b, w)| *b + (*w * *challenge))
             .collect::<Vec<_>>();
-        Ok(SchnorrResponse(responses))
+        Ok(SchnorrResponse(responses, self.t))
     }
+}
+
+/// Write the first-message commitment `t`'s challenge contribution.
+pub(crate) fn commitment_challenge_contribution<G: AffineRepr, W: Write>(
+    t: &G,
+    dst: &[u8],
+    mut writer: W,
+) -> Result<(), SchnorrError> {
+    append_dst(&mut writer, dst)?;
+    append_labeled(&mut writer, b"t", t)?;
+    Ok(())
 }
 
 impl<G: AffineRepr> SchnorrChallengeContributor for SchnorrCommitment<G> {
@@ -121,17 +132,19 @@ impl<G: AffineRepr> SchnorrChallengeContributor for SchnorrCommitment<G> {
     /// of form Hash({m_i}), and this function returns the bytecode for m_j for some j. Note that
     /// it does not include the bases or the commitment (`g_i`  and `Y` in `{g_i} * {x_i} = Y`) and
     /// they must be part of the challenge.
-    fn challenge_contribution<W: Write>(&self, writer: W) -> Result<(), SchnorrError> {
-        self.t.serialize_compressed(writer).map_err(|e| e.into())
+    fn challenge_contribution<W: Write>(&self, dst: &[u8], writer: W) -> Result<(), SchnorrError> {
+        commitment_challenge_contribution(&self.t, dst, writer)
     }
 }
 
-/// Response during step 3 of the Schnorr protocol to prove knowledge of 1 or more discrete logs
+/// Response during step 3 of the Schnorr protocol to prove knowledge of 1 or more discrete logs.
+/// The second element is the commitment to randomness `t` from step 1.
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SchnorrResponse<G: AffineRepr>(
     #[cfg_attr(feature = "serde", serde_as(as = "Vec<ArkObjectBytes>"))] pub Vec<G::ScalarField>,
+    #[cfg_attr(feature = "serde", serde_as(as = "ArkObjectBytes"))] pub G,
 );
 
 impl<G: AffineRepr> SchnorrResponse<G> {
@@ -141,7 +154,6 @@ impl<G: AffineRepr> SchnorrResponse<G> {
         &self,
         bases: &[G],
         y: &G,
-        t: &G,
         challenge: &G::ScalarField,
     ) -> Result<(), SchnorrError> {
         expect_equality!(
@@ -151,7 +163,7 @@ impl<G: AffineRepr> SchnorrResponse<G> {
         );
         if (G::Group::msm_unchecked(bases, &self.0).add(y.mul_bigint((-*challenge).into_bigint())))
             .into_affine()
-            == *t
+            == self.1
         {
             Ok(())
         } else {
@@ -164,7 +176,6 @@ impl<G: AffineRepr> SchnorrResponse<G> {
         &self,
         bases: Vec<G>,
         y: G,
-        t: G,
         challenge: &G::ScalarField,
         rmc: &mut RandomizedMultChecker<G>,
     ) -> Result<(), SchnorrError> {
@@ -176,7 +187,7 @@ impl<G: AffineRepr> SchnorrResponse<G> {
         rmc.add_many(
             bases.into_iter().chain(iter::once(y)),
             self.0.iter().chain(iter::once(&-*challenge)),
-            t,
+            self.1,
         );
         Ok(())
     }
@@ -209,7 +220,15 @@ impl<G: AffineRepr> SchnorrResponse<G> {
     pub fn len(&self) -> usize {
         self.0.len()
     }
-    // TODO: Add function for challenge contribution (bytes that are hashed)
+
+    /// The commitment `t`'s contribution to the challenge.
+    pub fn challenge_contribution<W: Write>(
+        &self,
+        dst: &[u8],
+        writer: W,
+    ) -> Result<(), SchnorrError> {
+        commitment_challenge_contribution(&self.1, dst, writer)
+    }
 }
 
 /// Uses try-and-increment. Vulnerable to side channel attacks. But this is only used when its input
@@ -283,14 +302,14 @@ mod tests {
 
             let resp = comm.response(&witnesses, &challenge).unwrap();
 
-            resp.is_valid(&bases, &y, &comm.t, &challenge).unwrap();
+            resp.is_valid(&bases, &y, &challenge).unwrap();
 
             test_serialization!(SchnorrResponse<$group_element_affine>, resp);
 
             // Verify using RandomizedMultChecker
 
             let mut checker = RandomizedMultChecker::new_using_rng(&mut rng);
-            resp.verify_using_randomized_mult_checker(bases, y, comm.t, &challenge, &mut checker)
+            resp.verify_using_randomized_mult_checker(bases, y, &challenge, &mut checker)
                 .unwrap();
             checker.verify().unwrap();
         };
@@ -300,5 +319,48 @@ mod tests {
     fn schnorr_vector() {
         test_schnorr_in_group!(G1Projective, G1Affine);
         test_schnorr_in_group!(G2Projective, G2Affine);
+    }
+
+    #[test]
+    fn dst_framing() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let bases = (0..5)
+            .map(|_| G1Projective::rand(&mut rng).into_affine())
+            .collect::<Vec<_>>();
+        let blindings = (0..5).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let comm = SchnorrCommitment::new(&bases, blindings);
+
+        // Empty `dst` is rejected
+        let mut buf = vec![];
+        assert!(matches!(
+            comm.challenge_contribution(b"", &mut buf),
+            Err(SchnorrError::EmptyDomainSeparator)
+        ));
+
+        // Distinct `dst` yields distinct contribution bytes
+        let mut b1 = vec![];
+        comm.challenge_contribution(b"rel1", &mut b1).unwrap();
+        let mut b2 = vec![];
+        comm.challenge_contribution(b"rel2", &mut b2).unwrap();
+        assert_ne!(b1, b2);
+
+        // Identical `dst` yields identical bytes
+        let mut b3 = vec![];
+        comm.challenge_contribution(b"rel1", &mut b3).unwrap();
+        assert_eq!(b1, b3);
+
+        // The response's (verifier-side) contribution matches the commitment's for the same `t`/`dst`
+        let witnesses = (0..5).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let challenge = Fr::rand(&mut rng);
+        let resp = comm.response(&witnesses, &challenge).unwrap();
+        let mut r1 = vec![];
+        resp.challenge_contribution(b"rel1", &mut r1).unwrap();
+        assert_eq!(b1, r1);
+        // Empty `dst` is rejected on the response side too
+        let mut buf = vec![];
+        assert!(matches!(
+            resp.challenge_contribution(b"", &mut buf),
+            Err(SchnorrError::EmptyDomainSeparator)
+        ));
     }
 }

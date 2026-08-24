@@ -57,3 +57,31 @@ pub use pok_generalized_pedersen::{
     compute_random_oracle_challenge, SchnorrChallengeContributor, SchnorrCommitment,
     SchnorrResponse,
 };
+
+use crate::error::SchnorrError;
+use ark_serialize::CanonicalSerialize;
+use ark_std::io::Write;
+
+/// Namespace + version tag, written before the caller's `dst` on every challenge contribution.
+pub const CHALLENGE_DST_PREFIX: &[u8] = b"schnorr_pok/v1";
+
+/// Validate `dst`, write the library prefix, then write `dst`.
+pub(crate) fn append_dst<W: Write>(mut writer: W, dst: &[u8]) -> Result<(), SchnorrError> {
+    if dst.is_empty() {
+        return Err(SchnorrError::EmptyDomainSeparator);
+    }
+    CHALLENGE_DST_PREFIX.serialize_compressed(&mut writer)?;
+    dst.serialize_compressed(&mut writer)?;
+    Ok(())
+}
+
+/// Append `label` then `element`.
+pub(crate) fn append_labeled<W: Write, T: CanonicalSerialize>(
+    mut writer: W,
+    label: &[u8],
+    element: &T,
+) -> Result<(), SchnorrError> {
+    label.serialize_compressed(&mut writer)?;
+    element.serialize_compressed(&mut writer)?;
+    Ok(())
+}
