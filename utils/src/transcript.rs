@@ -3,16 +3,13 @@
 use ark_ec::AffineRepr;
 use ark_ff::fields::Field;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{
-    io::{Result as ArkResult, Write},
-    vec,
-    vec::Vec,
-};
+use ark_std::{vec, vec::Vec};
 pub use merlin::Transcript as Merlin;
+use smallvec::{smallvec, SmallVec};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// must be specific to the application.
-pub fn new_merlin_transcript(label: &'static [u8]) -> impl Transcript + Clone + Write {
+pub fn new_merlin_transcript(label: &'static [u8]) -> impl Transcript + Clone {
     MerlinTranscript::new(label)
 }
 
@@ -20,19 +17,13 @@ pub fn new_merlin_transcript(label: &'static [u8]) -> impl Transcript + Clone + 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MerlinTranscript {
     pub merlin: Merlin,
-    pub next_label: Vec<u8>,
 }
 
 impl MerlinTranscript {
     pub fn new(label: &'static [u8]) -> Self {
         Self {
             merlin: Merlin::new(label),
-            next_label: b"".to_vec(),
         }
-    }
-
-    pub fn set_label(&mut self, label: &'static [u8]) {
-        self.next_label = label.to_vec();
     }
 }
 
@@ -60,22 +51,65 @@ pub trait Transcript {
     fn challenge_group_elem_without_static_label<G: AffineRepr>(&mut self, label: &[u8]) -> G;
 }
 
+impl<T: Transcript + ?Sized> Transcript for &mut T {
+    fn append<S: CanonicalSerialize>(&mut self, label: &'static [u8], element: &S) {
+        (**self).append(label, element)
+    }
+    fn append_without_static_label<S: CanonicalSerialize>(&mut self, label: &[u8], element: &S) {
+        (**self).append_without_static_label(label, element)
+    }
+    fn append_message(&mut self, label: &'static [u8], bytes: &[u8]) {
+        (**self).append_message(label, bytes)
+    }
+    fn append_message_without_static_label(&mut self, label: &[u8], bytes: &[u8]) {
+        (**self).append_message_without_static_label(label, bytes)
+    }
+    fn challenge_bytes(&mut self, label: &'static [u8], dest: &mut [u8]) {
+        (**self).challenge_bytes(label, dest)
+    }
+    fn challenge_bytes_without_static_label(&mut self, label: &[u8], dest: &mut [u8]) {
+        (**self).challenge_bytes_without_static_label(label, dest)
+    }
+    fn challenge_scalar<F: Field>(&mut self, label: &'static [u8]) -> F {
+        (**self).challenge_scalar(label)
+    }
+    fn challenge_scalar_without_static_label<F: Field>(&mut self, label: &[u8]) -> F {
+        (**self).challenge_scalar_without_static_label(label)
+    }
+    fn challenge_scalars<F: Field>(&mut self, label: &'static [u8], count: usize) -> Vec<F> {
+        (**self).challenge_scalars(label, count)
+    }
+    fn challenge_scalars_without_static_label<F: Field>(
+        &mut self,
+        label: &[u8],
+        count: usize,
+    ) -> Vec<F> {
+        (**self).challenge_scalars_without_static_label(label, count)
+    }
+    fn challenge_group_elem<G: AffineRepr>(&mut self, label: &'static [u8]) -> G {
+        (**self).challenge_group_elem(label)
+    }
+    fn challenge_group_elem_without_static_label<G: AffineRepr>(&mut self, label: &[u8]) -> G {
+        (**self).challenge_group_elem_without_static_label(label)
+    }
+}
+
 impl Transcript for MerlinTranscript {
     fn append<S: CanonicalSerialize>(&mut self, label: &'static [u8], element: &S) {
-        let mut buff: Vec<u8> = vec![0; element.compressed_size()];
+        let mut buf: SmallVec<[u8; 64]> = smallvec![0u8; element.compressed_size()];
         element
-            .serialize_compressed(&mut buff)
+            .serialize_compressed(&mut buf[..])
             .expect("serialization failed");
-        self.merlin.append_message(label, &buff);
+        self.merlin.append_message(label, &buf);
     }
 
     fn append_without_static_label<S: CanonicalSerialize>(&mut self, label: &[u8], element: &S) {
-        let mut buff: Vec<u8> = vec![0; element.compressed_size()];
+        let mut buf: SmallVec<[u8; 64]> = smallvec![0u8; element.compressed_size()];
         element
-            .serialize_compressed(&mut buff)
+            .serialize_compressed(&mut buf[..])
             .expect("serialization failed");
         self.merlin
-            .append_message_with_non_static_label(label, &buff);
+            .append_message_with_non_static_label(label, &buf);
     }
 
     fn append_message(&mut self, label: &'static [u8], bytes: &[u8]) {
@@ -230,23 +264,6 @@ impl Transcript for MerlinTranscript {
         }
     }
 }
-
-impl Write for MerlinTranscript {
-    fn write(&mut self, data: &[u8]) -> ArkResult<usize> {
-        self.merlin
-            .append_message_with_non_static_label(&self.next_label, data);
-        Ok(data.len())
-    }
-
-    #[inline]
-    fn flush(&mut self) -> ArkResult<()> {
-        Ok(())
-    }
-}
-
-// TODO: Impl Write trait for Merlin
-// TODO: Support domain-separator function that adds a label to transcript. One approach is to have MerlinTranscript struct
-// that has a mutable field called write_label set which is used in call to `append_message`
 
 #[cfg(test)]
 mod test {

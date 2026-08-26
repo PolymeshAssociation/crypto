@@ -9,7 +9,6 @@ use ark_ff::{PrimeField, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     collections::{BTreeMap, BTreeSet},
-    io::Write,
     iter,
     ops::{Add, Neg},
     vec,
@@ -17,7 +16,9 @@ use ark_std::{
 };
 #[cfg(feature = "serde")]
 use dock_crypto_utils::serde_utils::ArkObjectBytes;
-use dock_crypto_utils::{expect_equality, randomized_mult_checker::RandomizedMultChecker};
+use dock_crypto_utils::{
+    expect_equality, randomized_mult_checker::RandomizedMultChecker, transcript::Transcript,
+};
 #[cfg(feature = "serde")]
 use serde_with::Same;
 use zeroize::Zeroize;
@@ -210,12 +211,12 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
     }
 
     /// The commitment `t`'s contribution to the challenge.
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        commitment_challenge_contribution(&self.t, dst, writer)
+        commitment_challenge_contribution(&self.t, dst, transcript)
     }
 
     pub fn pre_verify(
@@ -283,14 +284,14 @@ impl<G: AffineRepr> PartialPokDiscreteLog<G> {
         rmc.add_2(base, response, y, &challenge.neg(), self.t)
     }
 
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         base: &G,
         y: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        PokDiscreteLogProtocol::compute_challenge_contribution(base, y, &self.t, dst, writer)
+        PokDiscreteLogProtocol::compute_challenge_contribution(base, y, &self.t, dst, transcript)
     }
 }
 
@@ -334,16 +335,16 @@ impl<G: AffineRepr> PartialPokPedersenCommitment<G> {
         )
     }
 
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         base1: &G,
         base2: &G,
         y: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            base1, base2, y, &self.t, dst, writer,
+            base1, base2, y, &self.t, dst, transcript,
         )
     }
 }
@@ -387,16 +388,16 @@ impl<G: AffineRepr> Partial1PokPedersenCommitment<G> {
         )
     }
 
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         base1: &G,
         base2: &G,
         y: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            base1, base2, y, &self.t, dst, writer,
+            base1, base2, y, &self.t, dst, transcript,
         )
     }
 }
@@ -440,16 +441,16 @@ impl<G: AffineRepr> Partial2PokPedersenCommitment<G> {
         )
     }
 
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         base1: &G,
         base2: &G,
         y: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            base1, base2, y, &self.t, dst, writer,
+            base1, base2, y, &self.t, dst, transcript,
         )
     }
 }
@@ -457,16 +458,20 @@ impl<G: AffineRepr> Partial2PokPedersenCommitment<G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        pok_generalized_pedersen::compute_random_oracle_challenge, SchnorrChallengeContributor,
-    };
+    use crate::SchnorrChallengeContributor;
     use ark_bls12_381::{Fr, G1Affine, G1Projective};
     use ark_ec::VariableBaseMSM;
     use ark_std::{
         rand::{rngs::StdRng, SeedableRng},
         UniformRand,
     };
-    use blake2::Blake2b512;
+    use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+
+    fn transcript_bytes(t: &MerlinTranscript) -> Vec<u8> {
+        let mut b = vec![];
+        t.serialize_compressed(&mut b).unwrap();
+        b
+    }
 
     #[test]
     fn discrete_log_partial() {
@@ -609,29 +614,30 @@ mod tests {
         let protocol_1 = PokDiscreteLogProtocol::init(witness1, blinding1, &base1);
         let protocol_2 = PokDiscreteLogProtocol::init(witness1, blinding1, &base2);
 
-        let mut chal_contrib_prover = vec![];
+        let mut prover_transcript = MerlinTranscript::new(b"test");
         protocol_1
-            .challenge_contribution(&base1, &y_1, b"test", &mut chal_contrib_prover)
+            .challenge_contribution(&base1, &y_1, b"test", &mut prover_transcript)
             .unwrap();
         protocol_2
-            .challenge_contribution(&base2, &y_2, b"test", &mut chal_contrib_prover)
+            .challenge_contribution(&base2, &y_2, b"test", &mut prover_transcript)
             .unwrap();
-        let challenge_prover =
-            compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_prover);
+        let challenge_prover = prover_transcript.challenge_scalar(b"challenge");
         let proof_1 = protocol_1.gen_proof(&challenge_prover);
         let proof_2 = protocol_2.gen_partial_proof();
 
-        let mut chal_contrib_verifier = vec![];
+        let mut verifier_transcript = MerlinTranscript::new(b"test");
         proof_1
-            .challenge_contribution(&base1, &y_1, b"test", &mut chal_contrib_verifier)
+            .challenge_contribution(&base1, &y_1, b"test", &mut verifier_transcript)
             .unwrap();
         proof_2
-            .challenge_contribution(&base2, &y_2, b"test", &mut chal_contrib_verifier)
+            .challenge_contribution(&base2, &y_2, b"test", &mut verifier_transcript)
             .unwrap();
-        let challenge_verifier =
-            compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_verifier);
+        let challenge_verifier = verifier_transcript.challenge_scalar(b"challenge");
 
-        assert_eq!(chal_contrib_prover, chal_contrib_verifier);
+        assert_eq!(
+            transcript_bytes(&prover_transcript),
+            transcript_bytes(&verifier_transcript)
+        );
         assert_eq!(challenge_prover, challenge_verifier);
 
         proof_1.verify(&y_1, &base1, &challenge_verifier).unwrap();
@@ -661,45 +667,46 @@ mod tests {
             witness4, blinding4, &base7, witness2, blinding2, &base8,
         );
 
-        let mut chal_contrib_prover = vec![];
+        let mut prover_transcript = MerlinTranscript::new(b"test");
         protocol_1
-            .challenge_contribution(&base1, &base2, &y_1, b"test", &mut chal_contrib_prover)
+            .challenge_contribution(&base1, &base2, &y_1, b"test", &mut prover_transcript)
             .unwrap();
         protocol_2
-            .challenge_contribution(&base3, &base4, &y_2, b"test", &mut chal_contrib_prover)
+            .challenge_contribution(&base3, &base4, &y_2, b"test", &mut prover_transcript)
             .unwrap();
         protocol_3
-            .challenge_contribution(&base5, &base6, &y_3, b"test", &mut chal_contrib_prover)
+            .challenge_contribution(&base5, &base6, &y_3, b"test", &mut prover_transcript)
             .unwrap();
         protocol_4
-            .challenge_contribution(&base7, &base8, &y_4, b"test", &mut chal_contrib_prover)
+            .challenge_contribution(&base7, &base8, &y_4, b"test", &mut prover_transcript)
             .unwrap();
-        let challenge_prover =
-            compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_prover);
+        let challenge_prover = prover_transcript.challenge_scalar(b"challenge");
 
         let proof_1 = protocol_1.gen_proof(&challenge_prover);
         let proof_2 = protocol_2.gen_partial_proof();
         let proof_3 = protocol_3.gen_partial2_proof(&challenge_prover);
         let proof_4 = protocol_4.gen_partial1_proof(&challenge_prover);
 
-        let mut chal_contrib_verifier = vec![];
+        let mut verifier_transcript = MerlinTranscript::new(b"test");
         proof_1
-            .challenge_contribution(&base1, &base2, &y_1, b"test", &mut chal_contrib_verifier)
+            .challenge_contribution(&base1, &base2, &y_1, b"test", &mut verifier_transcript)
             .unwrap();
         proof_2
-            .challenge_contribution(&base3, &base4, &y_2, b"test", &mut chal_contrib_verifier)
+            .challenge_contribution(&base3, &base4, &y_2, b"test", &mut verifier_transcript)
             .unwrap();
         proof_3
-            .challenge_contribution(&base5, &base6, &y_3, b"test", &mut chal_contrib_verifier)
+            .challenge_contribution(&base5, &base6, &y_3, b"test", &mut verifier_transcript)
             .unwrap();
         proof_4
-            .challenge_contribution(&base7, &base8, &y_4, b"test", &mut chal_contrib_verifier)
+            .challenge_contribution(&base7, &base8, &y_4, b"test", &mut verifier_transcript)
             .unwrap();
 
-        let challenge_verifier =
-            compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_verifier);
+        let challenge_verifier = verifier_transcript.challenge_scalar(b"challenge");
 
-        assert_eq!(chal_contrib_prover, chal_contrib_verifier);
+        assert_eq!(
+            transcript_bytes(&prover_transcript),
+            transcript_bytes(&verifier_transcript)
+        );
         assert_eq!(challenge_prover, challenge_verifier);
         proof_1
             .verify(&y_1, &base1, &base2, &challenge_verifier)
@@ -782,23 +789,18 @@ mod tests {
         // PartialPokDiscreteLog
         let protocol =
             PokDiscreteLogProtocol::init(witness1, Fr::rand(&mut rng), &base1).gen_partial_proof();
-        let mut buf = vec![];
-        assert!(matches!(
-            protocol.challenge_contribution(&base1, &y, b"", &mut buf),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
-        let mut d1 = vec![];
+        let mut dt1 = MerlinTranscript::new(b"test");
         protocol
-            .challenge_contribution(&base1, &y, b"rel1", &mut d1)
+            .challenge_contribution(&base1, &y, b"rel1", &mut dt1)
             .unwrap();
-        let mut d2 = vec![];
+        let mut dt2 = MerlinTranscript::new(b"test");
         protocol
-            .challenge_contribution(&base1, &y, b"rel2", &mut d2)
+            .challenge_contribution(&base1, &y, b"rel2", &mut dt2)
             .unwrap();
-        assert_ne!(d1, d2);
+        assert_ne!(transcript_bytes(&dt1), transcript_bytes(&dt2));
 
-        // The three partial Pedersen variants share the same framing; check each rejects an
-        // empty `dst`, separates on `dst`, and matches the full protocol's bytes for a fixed `dst`.
+        // The three partial Pedersen variants share the same framing; check each separates on
+        // `dst` and matches the full protocol's bytes for a fixed `dst`.
         let challenge = Fr::rand(&mut rng);
         let full = PokPedersenCommitmentProtocol::init(
             witness1,
@@ -808,54 +810,47 @@ mod tests {
             Fr::rand(&mut rng),
             &base2,
         );
-        let mut reference = vec![];
+        let mut reference = MerlinTranscript::new(b"test");
         full.challenge_contribution(&base1, &base2, &y, b"rel1", &mut reference)
             .unwrap();
+        let reference = transcript_bytes(&reference);
 
         let partial = full.clone().gen_partial_proof();
         let partial1 = full.clone().gen_partial1_proof(&challenge);
         let partial2 = full.gen_partial2_proof(&challenge);
 
         for run in 0..3 {
-            let mut empty = vec![];
-            let empty_res = match run {
-                0 => partial.challenge_contribution(&base1, &base2, &y, b"", &mut empty),
-                1 => partial1.challenge_contribution(&base1, &base2, &y, b"", &mut empty),
-                _ => partial2.challenge_contribution(&base1, &base2, &y, b"", &mut empty),
-            };
-            assert!(matches!(empty_res, Err(SchnorrError::EmptyDomainSeparator)));
-
-            let mut b1 = vec![];
-            let mut b2 = vec![];
+            let mut t1 = MerlinTranscript::new(b"test");
+            let mut t2 = MerlinTranscript::new(b"test");
             match run {
                 0 => {
                     partial
-                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut b1)
+                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut t1)
                         .unwrap();
                     partial
-                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut b2)
+                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut t2)
                         .unwrap();
                 }
                 1 => {
                     partial1
-                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut b1)
+                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut t1)
                         .unwrap();
                     partial1
-                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut b2)
+                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut t2)
                         .unwrap();
                 }
                 _ => {
                     partial2
-                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut b1)
+                        .challenge_contribution(&base1, &base2, &y, b"rel1", &mut t1)
                         .unwrap();
                     partial2
-                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut b2)
+                        .challenge_contribution(&base1, &base2, &y, b"rel2", &mut t2)
                         .unwrap();
                 }
             }
-            assert_ne!(b1, b2);
+            assert_ne!(transcript_bytes(&t1), transcript_bytes(&t2));
             // `t` is shared with the full protocol, so bytes match for the same `dst`
-            assert_eq!(b1, reference);
+            assert_eq!(transcript_bytes(&t1), reference);
         }
 
         // PartialSchnorrResponse's (verifier-side) contribution matches SchnorrCommitment's for the
@@ -865,15 +860,10 @@ mod tests {
         let mut witnesses = BTreeMap::new();
         witnesses.insert(0, witness1);
         let presp = comm.partial_response(witnesses, &challenge).unwrap();
-        let mut cbytes = vec![];
-        comm.challenge_contribution(b"rel1", &mut cbytes).unwrap();
-        let mut pbytes = vec![];
-        presp.challenge_contribution(b"rel1", &mut pbytes).unwrap();
-        assert_eq!(cbytes, pbytes);
-        let mut buf = vec![];
-        assert!(matches!(
-            presp.challenge_contribution(b"", &mut buf),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
+        let mut ct = MerlinTranscript::new(b"test");
+        comm.challenge_contribution(b"rel1", &mut ct).unwrap();
+        let mut pt = MerlinTranscript::new(b"test");
+        presp.challenge_contribution(b"rel1", &mut pt).unwrap();
+        assert_eq!(transcript_bytes(&ct), transcript_bytes(&pt));
     }
 }

@@ -19,23 +19,24 @@
 //! prover and verifier know `G`, `H`, `Y` and `Z` and prover additionally knows `x` but not `k`.
 
 use crate::{
-    append_dst, append_labeled,
     discrete_log::{
         PokDiscreteLog, PokDiscreteLogProtocol, PokPedersenCommitment,
         PokPedersenCommitmentProtocol,
     },
     error::SchnorrError,
     partial::PartialPokPedersenCommitment,
+    CHALLENGE_DST_PREFIX,
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::Zero;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{fmt::Debug, io::Write, ops::Neg, rand::RngCore, vec::Vec, UniformRand};
+use ark_std::{fmt::Debug, ops::Neg, rand::RngCore, vec::Vec, UniformRand};
 use core::mem;
 #[cfg(feature = "serde")]
 use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use dock_crypto_utils::{
     commitment::PedersenCommitmentKey, randomized_mult_checker::RandomizedMultChecker,
+    transcript::Transcript,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -140,13 +141,13 @@ impl<G: AffineRepr> DiscreteLogInequalityProtocol<G> {
         )
     }
 
-    pub fn challenge_contribution_for_public_inequality<W: Write>(
+    pub fn challenge_contribution_for_public_inequality<T: Transcript>(
         &self,
         commitment: &G,
         inequal_to: &G::ScalarField,
         comm_key: &PedersenCommitmentKey<G>,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         Self::compute_challenge_contribution(
             &self.b,
@@ -157,17 +158,17 @@ impl<G: AffineRepr> DiscreteLogInequalityProtocol<G> {
             &self.sc_b_ped.t,
             comm_key,
             dst,
-            writer,
+            transcript,
         )
     }
 
-    pub fn challenge_contribution_for_committed_inequality<W: Write>(
+    pub fn challenge_contribution_for_committed_inequality<T: Transcript>(
         &self,
         commitment1: &G,
         commitment2: &G,
         comm_key: &PedersenCommitmentKey<G>,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         Self::compute_challenge_contribution(
             &self.b,
@@ -178,7 +179,7 @@ impl<G: AffineRepr> DiscreteLogInequalityProtocol<G> {
             &self.sc_b_ped.t,
             comm_key,
             dst,
-            writer,
+            transcript,
         )
     }
 
@@ -194,7 +195,7 @@ impl<G: AffineRepr> DiscreteLogInequalityProtocol<G> {
         }
     }
 
-    pub fn compute_challenge_contribution<W: Write>(
+    pub fn compute_challenge_contribution<T: Transcript>(
         b: &G,
         commitment: &G,
         inequal_to: &G::ScalarField,
@@ -203,21 +204,20 @@ impl<G: AffineRepr> DiscreteLogInequalityProtocol<G> {
         t_b_ped: &G,
         comm_key: &PedersenCommitmentKey<G>,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"g", &comm_key.g)?;
-        append_labeled(&mut writer, b"h", &comm_key.h)?;
-        append_labeled(&mut writer, b"commitment", commitment)?;
-        append_labeled(&mut writer, b"t_c", t_c)?;
-        append_labeled(&mut writer, b"b", b)?;
-        append_labeled(&mut writer, b"t_b", t_b)?;
-        append_labeled(
-            &mut writer,
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"g", &comm_key.g);
+        transcript.append(b"h", &comm_key.h);
+        transcript.append(b"commitment", commitment);
+        transcript.append(b"t_c", t_c);
+        transcript.append(b"b", b);
+        transcript.append(b"t_b", t_b);
+        transcript.append(
             b"base_for_b",
             &Self::base_for_b(commitment, inequal_to, comm_key),
-        )?;
-        append_labeled(&mut writer, b"t_b_ped", t_b_ped)?;
+        );
+        transcript.append(b"t_b_ped", t_b_ped);
         Ok(())
     }
 
@@ -331,13 +331,13 @@ impl<G: AffineRepr> InequalityProof<G> {
         )
     }
 
-    pub fn challenge_contribution_for_public_inequality<W: Write>(
+    pub fn challenge_contribution_for_public_inequality<T: Transcript>(
         &self,
         commitment: &G,
         inequal_to: &G::ScalarField,
         comm_key: &PedersenCommitmentKey<G>,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         DiscreteLogInequalityProtocol::compute_challenge_contribution(
             &self.b,
@@ -348,17 +348,17 @@ impl<G: AffineRepr> InequalityProof<G> {
             &self.sc_b_ped.t,
             comm_key,
             dst,
-            writer,
+            transcript,
         )
     }
 
-    pub fn challenge_contribution_for_committed_inequality<W: Write>(
+    pub fn challenge_contribution_for_committed_inequality<T: Transcript>(
         &self,
         commitment1: &G,
         commitment2: &G,
         comm_key: &PedersenCommitmentKey<G>,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         DiscreteLogInequalityProtocol::compute_challenge_contribution(
             &self.b,
@@ -372,7 +372,7 @@ impl<G: AffineRepr> InequalityProof<G> {
             &self.sc_b_ped.t,
             comm_key,
             dst,
-            writer,
+            transcript,
         )
     }
 }
@@ -444,14 +444,14 @@ impl<G: AffineRepr> UnknownDiscreteLogInequalityProtocol<G> {
         Ok(Self { c, sc_c, sc_zero })
     }
 
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         g: &G,
         h: &G,
         y: &G,
         z: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         Self::compute_challenge_contribution(
             &self.c,
@@ -462,7 +462,7 @@ impl<G: AffineRepr> UnknownDiscreteLogInequalityProtocol<G> {
             y,
             z,
             dst,
-            writer,
+            transcript,
         )
     }
 
@@ -476,7 +476,7 @@ impl<G: AffineRepr> UnknownDiscreteLogInequalityProtocol<G> {
         }
     }
 
-    pub fn compute_challenge_contribution<W: Write>(
+    pub fn compute_challenge_contribution<T: Transcript>(
         c: &G,
         t_c: &G,
         t_zero: &G,
@@ -485,42 +485,32 @@ impl<G: AffineRepr> UnknownDiscreteLogInequalityProtocol<G> {
         y: &G,
         z: &G,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         let zero = G::zero();
         let minus_z = z.into_group().neg().into_affine();
         let minus_y = y.into_group().neg().into_affine();
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"c", c)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"c", c);
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            h,
-            &minus_z,
-            c,
-            t_c,
-            dst,
-            &mut writer,
+            h, &minus_z, c, t_c, dst, transcript,
         )?;
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            g,
-            &minus_y,
-            &zero,
-            t_zero,
-            dst,
-            &mut writer,
+            g, &minus_y, &zero, t_zero, dst, transcript,
         )?;
         Ok(())
     }
 }
 
 impl<G: AffineRepr> UnknownDiscreteLogInequalityProof<G> {
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         g: &G,
         h: &G,
         y: &G,
         z: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         UnknownDiscreteLogInequalityProtocol::compute_challenge_contribution(
             &self.c,
@@ -531,7 +521,7 @@ impl<G: AffineRepr> UnknownDiscreteLogInequalityProof<G> {
             y,
             z,
             dst,
-            writer,
+            transcript,
         )
     }
 
@@ -764,40 +754,37 @@ mod tests {
         )
         .unwrap();
 
-        // Empty `dst` is rejected
-        let mut buf = vec![];
-        assert!(matches!(
-            protocol.challenge_contribution_for_public_inequality(
-                &comm, &in_equal, &comm_key, b"", &mut buf
-            ),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
+        fn transcript_bytes(t: &MerlinTranscript) -> Vec<u8> {
+            let mut b = vec![];
+            t.serialize_compressed(&mut b).unwrap();
+            b
+        }
 
-        // Distinct `dst` yields distinct contribution bytes
-        let mut b1 = vec![];
+        // Distinct `dst` yields distinct transcript state
+        let mut t1 = MerlinTranscript::new(b"test");
         protocol
             .challenge_contribution_for_public_inequality(
-                &comm, &in_equal, &comm_key, b"rel1", &mut b1,
+                &comm, &in_equal, &comm_key, b"rel1", &mut t1,
             )
             .unwrap();
-        let mut b2 = vec![];
+        let mut t2 = MerlinTranscript::new(b"test");
         protocol
             .challenge_contribution_for_public_inequality(
-                &comm, &in_equal, &comm_key, b"rel2", &mut b2,
+                &comm, &in_equal, &comm_key, b"rel2", &mut t2,
             )
             .unwrap();
-        assert_ne!(b1, b2);
+        assert_ne!(transcript_bytes(&t1), transcript_bytes(&t2));
 
-        // Protocol and proof produce identical bytes for the same `dst`
+        // Protocol and proof produce identical transcript state for the same `dst`
         let challenge = Fr::rand(&mut rng);
         let proof = protocol.gen_proof(&challenge);
-        let mut b3 = vec![];
+        let mut t3 = MerlinTranscript::new(b"test");
         proof
             .challenge_contribution_for_public_inequality(
-                &comm, &in_equal, &comm_key, b"rel1", &mut b3,
+                &comm, &in_equal, &comm_key, b"rel1", &mut t3,
             )
             .unwrap();
-        assert_eq!(b1, b3);
+        assert_eq!(transcript_bytes(&t1), transcript_bytes(&t3));
 
         // Same for the unknown-discrete-log inequality protocol
         let x = Fr::rand(&mut rng);
@@ -808,25 +795,20 @@ mod tests {
         let z = (h * k).into_affine();
         let protocol =
             UnknownDiscreteLogInequalityProtocol::init(&mut rng, x, &g, &h, &y, &z).unwrap();
-        let mut u0 = vec![];
-        assert!(matches!(
-            protocol.challenge_contribution(&g, &h, &y, &z, b"", &mut u0),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
-        let mut u1 = vec![];
+        let mut u1 = MerlinTranscript::new(b"test");
         protocol
             .challenge_contribution(&g, &h, &y, &z, b"rel1", &mut u1)
             .unwrap();
-        let mut u2 = vec![];
+        let mut u2 = MerlinTranscript::new(b"test");
         protocol
             .challenge_contribution(&g, &h, &y, &z, b"rel2", &mut u2)
             .unwrap();
-        assert_ne!(u1, u2);
+        assert_ne!(transcript_bytes(&u1), transcript_bytes(&u2));
         let proof = protocol.gen_proof(&Fr::rand(&mut rng));
-        let mut u3 = vec![];
+        let mut u3 = MerlinTranscript::new(b"test");
         proof
             .challenge_contribution(&g, &h, &y, &z, b"rel1", &mut u3)
             .unwrap();
-        assert_eq!(u1, u3);
+        assert_eq!(transcript_bytes(&u1), transcript_bytes(&u3));
     }
 }
