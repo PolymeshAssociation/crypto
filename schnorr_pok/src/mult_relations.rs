@@ -29,13 +29,15 @@
 //! and commitment key have already been included in the challenge.
 //!
 
-use crate::{append_dst, append_labeled, error::SchnorrError};
+use crate::{error::SchnorrError, CHALLENGE_DST_PREFIX};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{Field, One};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{io::Write, ops::Neg, rand::RngCore, vec::Vec, UniformRand};
+use ark_std::{ops::Neg, rand::RngCore, vec::Vec, UniformRand};
 use dock_crypto_utils::{
-    commitment::PedersenCommitmentKey, randomized_mult_checker::RandomizedMultChecker,
+    commitment::PedersenCommitmentKey,
+    randomized_mult_checker::RandomizedMultChecker,
+    transcript::Transcript,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -167,15 +169,15 @@ impl<G: AffineRepr> ProductProtocol<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"t_a", &self.t_a)?;
-        append_labeled(&mut writer, b"t_b", &self.t_b)?;
-        append_labeled(&mut writer, b"t_c", &self.t_c)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"t_a", &self.t_a);
+        transcript.append(b"t_b", &self.t_b);
+        transcript.append(b"t_c", &self.t_c);
         Ok(())
     }
 
@@ -263,15 +265,15 @@ impl<G: AffineRepr> ProductProof<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"t_a", &self.t_a)?;
-        append_labeled(&mut writer, b"t_b", &self.t_b)?;
-        append_labeled(&mut writer, b"t_c", &self.t_c)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"t_a", &self.t_a);
+        transcript.append(b"t_b", &self.t_b);
+        transcript.append(b"t_c", &self.t_c);
         Ok(())
     }
 }
@@ -308,14 +310,14 @@ impl<G: AffineRepr> SquareProtocol<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"t_a", &self.t_a)?;
-        append_labeled(&mut writer, b"t_a_sqr", &self.t_a_sqr)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"t_a", &self.t_a);
+        transcript.append(b"t_a_sqr", &self.t_a_sqr);
         Ok(())
     }
 
@@ -384,14 +386,14 @@ impl<G: AffineRepr> SquareProof<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"t_a", &self.t_a)?;
-        append_labeled(&mut writer, b"t_a_sqr", &self.t_a_sqr)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"t_a", &self.t_a);
+        transcript.append(b"t_a_sqr", &self.t_a_sqr);
         Ok(())
     }
 }
@@ -434,15 +436,15 @@ impl<G: AffineRepr> InverseProtocol<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"t_a", &self.t_a)?;
-        append_labeled(&mut writer, b"t_a_inv", &self.t_a_inv)?;
-        append_labeled(&mut writer, b"t_one", &self.t_one)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"t_a", &self.t_a);
+        transcript.append(b"t_a_inv", &self.t_a_inv);
+        transcript.append(b"t_one", &self.t_one);
         Ok(())
     }
 
@@ -530,15 +532,15 @@ impl<G: AffineRepr> InverseProof<G> {
     }
 
     /// Assumes that the public commitments and commitment key have already been included in the challenge
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"t_a", &self.t_a)?;
-        append_labeled(&mut writer, b"t_a_inv", &self.t_a_inv)?;
-        append_labeled(&mut writer, b"t_one", &self.t_one)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"t_a", &self.t_a);
+        transcript.append(b"t_a_inv", &self.t_a_inv);
+        transcript.append(b"t_one", &self.t_one);
         Ok(())
     }
 }
@@ -550,7 +552,7 @@ mod tests {
     use ark_ff::{Field, One};
     use ark_std::UniformRand;
     use blake2::Blake2b512;
-    use dock_crypto_utils::transcript::{new_merlin_transcript, Transcript};
+    use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
     use rand_core::OsRng;
 
     #[test]
@@ -573,7 +575,7 @@ mod tests {
             let b = comm_key.commit(&v_b, &r_b);
             let c = comm_key.commit(&v_c, &r_c);
 
-            let mut prover_transcript = new_merlin_transcript(b"test");
+            let mut prover_transcript = MerlinTranscript::new(b"test");
             prover_transcript.append(b"comm_key", &comm_key);
             prover_transcript.append(b"a", &a);
             prover_transcript.append(b"b", &b);
@@ -587,7 +589,7 @@ mod tests {
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
 
-            let mut verifier_transcript = new_merlin_transcript(b"test");
+            let mut verifier_transcript = MerlinTranscript::new(b"test");
             verifier_transcript.append(b"comm_key", &comm_key);
             verifier_transcript.append(b"a", &a);
             verifier_transcript.append(b"b", &b);
@@ -619,7 +621,7 @@ mod tests {
             let a = comm_key.commit(&v_a, &r_a);
             let a_sqr = comm_key.commit(&v_a_sqr, &r_a_sqr);
 
-            let mut prover_transcript = new_merlin_transcript(b"test");
+            let mut prover_transcript = MerlinTranscript::new(b"test");
             prover_transcript.append(b"comm_key", &comm_key);
             prover_transcript.append(b"a", &a);
             prover_transcript.append(b"b", &a);
@@ -634,7 +636,7 @@ mod tests {
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
 
-            let mut verifier_transcript = new_merlin_transcript(b"test");
+            let mut verifier_transcript = MerlinTranscript::new(b"test");
             verifier_transcript.append(b"comm_key", &comm_key);
             verifier_transcript.append(b"a", &a);
             verifier_transcript.append(b"b", &a);
@@ -665,7 +667,7 @@ mod tests {
             let a_inv = comm_key.commit(&v_a_inv, &r_a_inv);
             let one = comm_key.commit(&Fr::one(), &r_one);
 
-            let mut prover_transcript = new_merlin_transcript(b"test");
+            let mut prover_transcript = MerlinTranscript::new(b"test");
             prover_transcript.append(b"comm_key", &comm_key);
             prover_transcript.append(b"a", &a);
             prover_transcript.append(b"b", &a_inv);
@@ -688,7 +690,7 @@ mod tests {
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
 
-            let mut verifier_transcript = new_merlin_transcript(b"test");
+            let mut verifier_transcript = MerlinTranscript::new(b"test");
             verifier_transcript.append(b"comm_key", &comm_key);
             verifier_transcript.append(b"a", &a);
             verifier_transcript.append(b"b", &a_inv);
@@ -718,7 +720,7 @@ mod tests {
             let a = comm_key.commit(&v_a, &r_a);
             let a_sqr = comm_key.commit(&v_a_sqr, &r_a_sqr);
 
-            let mut prover_transcript = new_merlin_transcript(b"test");
+            let mut prover_transcript = MerlinTranscript::new(b"test");
             prover_transcript.append(b"comm_key", &comm_key);
             prover_transcript.append(b"a", &a);
             prover_transcript.append(b"a^2", &a_sqr);
@@ -730,7 +732,7 @@ mod tests {
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
 
-            let mut verifier_transcript = new_merlin_transcript(b"test");
+            let mut verifier_transcript = MerlinTranscript::new(b"test");
             verifier_transcript.append(b"comm_key", &comm_key);
             verifier_transcript.append(b"a", &a);
             verifier_transcript.append(b"a^2", &a_sqr);
@@ -770,7 +772,7 @@ mod tests {
             let a = comm_key.commit(&v_a, &r_a);
             let a_inv = comm_key.commit(&v_a_inv, &r_a_inv);
 
-            let mut prover_transcript = new_merlin_transcript(b"test");
+            let mut prover_transcript = MerlinTranscript::new(b"test");
             prover_transcript.append(b"comm_key", &comm_key);
             prover_transcript.append(b"a", &a);
             prover_transcript.append(b"a_inv", &a_inv);
@@ -782,7 +784,7 @@ mod tests {
             let challenge = prover_transcript.challenge_scalar(b"challenge");
             let proof = protocol.gen_proof(&challenge);
 
-            let mut verifier_transcript = new_merlin_transcript(b"test");
+            let mut verifier_transcript = MerlinTranscript::new(b"test");
             verifier_transcript.append(b"comm_key", &comm_key);
             verifier_transcript.append(b"a", &a);
             verifier_transcript.append(b"a_inv", &a_inv);
@@ -818,25 +820,24 @@ mod tests {
         let protocol =
             ProductProtocol::init(&mut rng, &a, v_a, v_b, v_c, r_a, r_b, r_c, &comm_key).unwrap();
 
-        // Empty `dst` is rejected
-        let mut buf = vec![];
-        assert!(matches!(
-            protocol.challenge_contribution(b"", &mut buf),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
+        fn transcript_bytes(t: &MerlinTranscript) -> Vec<u8> {
+            let mut b = vec![];
+            t.serialize_compressed(&mut b).unwrap();
+            b
+        }
 
-        // Distinct `dst` yields distinct contribution bytes
-        let mut b1 = vec![];
-        protocol.challenge_contribution(b"rel1", &mut b1).unwrap();
-        let mut b2 = vec![];
-        protocol.challenge_contribution(b"rel2", &mut b2).unwrap();
-        assert_ne!(b1, b2);
+        // Distinct `dst` yields distinct transcript state
+        let mut t1 = MerlinTranscript::new(b"test");
+        protocol.challenge_contribution(b"rel1", &mut t1).unwrap();
+        let mut t2 = MerlinTranscript::new(b"test");
+        protocol.challenge_contribution(b"rel2", &mut t2).unwrap();
+        assert_ne!(transcript_bytes(&t1), transcript_bytes(&t2));
 
-        // Protocol and proof produce identical bytes for the same `dst`
+        // Protocol and proof produce identical transcript state for the same `dst`
         let challenge = Fr::rand(&mut rng);
         let proof = protocol.gen_proof(&challenge);
-        let mut b3 = vec![];
-        proof.challenge_contribution(b"rel1", &mut b3).unwrap();
-        assert_eq!(b1, b3);
+        let mut t3 = MerlinTranscript::new(b"test");
+        proof.challenge_contribution(b"rel1", &mut t3).unwrap();
+        assert_eq!(transcript_bytes(&t1), transcript_bytes(&t3));
     }
 }

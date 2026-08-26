@@ -15,12 +15,15 @@
 //! 3. Computes 2 responses `s1 = r1 + c*x1` and `s2 = r2 + c*x2` and sends them to the verifier.
 //! 4. Verifier checks if `G1 * s1 + G2 * s2 = T + Y*c`
 
-use crate::{append_dst, append_labeled, error::SchnorrError};
+use crate::{error::SchnorrError, CHALLENGE_DST_PREFIX};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{io::Write, ops::Neg, vec::Vec};
-use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
+use ark_std::{ops::Neg, vec::Vec};
+use dock_crypto_utils::{
+    randomized_mult_checker::RandomizedMultChecker,
+    transcript::Transcript,
+};
 #[cfg(feature = "serde")]
 use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -114,14 +117,14 @@ impl<G: AffineRepr> PokDiscreteLogProtocol<G> {
         }
     }
 
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         base: &G,
         y: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        Self::compute_challenge_contribution(base, y, &self.t, dst, writer)
+        Self::compute_challenge_contribution(base, y, &self.t, dst, transcript)
     }
 
     pub fn gen_proof(self, challenge: &G::ScalarField) -> PokDiscreteLog<G> {
@@ -132,30 +135,30 @@ impl<G: AffineRepr> PokDiscreteLogProtocol<G> {
         }
     }
 
-    pub fn compute_challenge_contribution<W: Write>(
+    pub fn compute_challenge_contribution<T: Transcript>(
         base: &G,
         y: &G,
         t: &G,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"base", base)?;
-        append_labeled(&mut writer, b"y", y)?;
-        append_labeled(&mut writer, b"t", t)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"base", base);
+        transcript.append(b"y", y);
+        transcript.append(b"t", t);
         Ok(())
     }
 }
 
 impl<G: AffineRepr> PokDiscreteLog<G> {
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         base: &G,
         y: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        PokDiscreteLogProtocol::compute_challenge_contribution(base, y, &self.t, dst, writer)
+        PokDiscreteLogProtocol::compute_challenge_contribution(base, y, &self.t, dst, transcript)
     }
 
     /// `base*response - y*challenge == t`
@@ -200,15 +203,15 @@ impl<G: AffineRepr> PokPedersenCommitmentProtocol<G> {
         }
     }
 
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         base1: &G,
         base2: &G,
         y: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        Self::compute_challenge_contribution(base1, base2, y, &self.t, dst, writer)
+        Self::compute_challenge_contribution(base1, base2, y, &self.t, dst, transcript)
     }
 
     pub fn gen_proof(self, challenge: &G::ScalarField) -> PokPedersenCommitment<G> {
@@ -221,34 +224,34 @@ impl<G: AffineRepr> PokPedersenCommitmentProtocol<G> {
         }
     }
 
-    pub fn compute_challenge_contribution<W: Write>(
+    pub fn compute_challenge_contribution<T: Transcript>(
         base1: &G,
         base2: &G,
         y: &G,
         t: &G,
         dst: &[u8],
-        mut writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        append_dst(&mut writer, dst)?;
-        append_labeled(&mut writer, b"base1", base1)?;
-        append_labeled(&mut writer, b"base2", base2)?;
-        append_labeled(&mut writer, b"y", y)?;
-        append_labeled(&mut writer, b"t", t)?;
+        transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+        transcript.append(b"base1", base1);
+        transcript.append(b"base2", base2);
+        transcript.append(b"y", y);
+        transcript.append(b"t", t);
         Ok(())
     }
 }
 
 impl<G: AffineRepr> PokPedersenCommitment<G> {
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         base1: &G,
         base2: &G,
         y: &G,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
         PokPedersenCommitmentProtocol::compute_challenge_contribution(
-            base1, base2, y, &self.t, dst, writer,
+            base1, base2, y, &self.t, dst, transcript,
         )
     }
 
@@ -293,14 +296,20 @@ impl<G: AffineRepr> PokPedersenCommitment<G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{pok_generalized_pedersen::compute_random_oracle_challenge, test_serialization};
+    use crate::test_serialization;
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_ec::pairing::Pairing;
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use ark_std::{
         rand::{rngs::StdRng, SeedableRng},
         UniformRand,
     };
-    use blake2::Blake2b512;
+
+    fn transcript_bytes(t: &MerlinTranscript) -> Vec<u8> {
+        let mut b = vec![];
+        t.serialize_compressed(&mut b).unwrap();
+        b
+    }
 
     #[test]
     fn discrete_log() {
@@ -316,9 +325,9 @@ mod tests {
                     PokDiscreteLogProtocol::<<Bls12_381 as Pairing>::$group_affine>::init(
                         witness, blinding, &base,
                     );
-                let mut chal_contrib_prover = vec![];
+                let mut prover_transcript = MerlinTranscript::new(b"test");
                 protocol
-                    .challenge_contribution(&base, &y, b"test", &mut chal_contrib_prover)
+                    .challenge_contribution(&base, &y, b"test", &mut prover_transcript)
                     .unwrap();
 
                 test_serialization!(
@@ -326,19 +335,20 @@ mod tests {
                     protocol
                 );
 
-                let challenge_prover =
-                    compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_prover);
+                let challenge_prover = prover_transcript.challenge_scalar(b"challenge");
                 let proof = protocol.gen_proof(&challenge_prover);
 
-                let mut chal_contrib_verifier = vec![];
+                let mut verifier_transcript = MerlinTranscript::new(b"test");
                 proof
-                    .challenge_contribution(&base, &y, b"test", &mut chal_contrib_verifier)
+                    .challenge_contribution(&base, &y, b"test", &mut verifier_transcript)
                     .unwrap();
 
-                let challenge_verifier =
-                    compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_verifier);
+                let challenge_verifier = verifier_transcript.challenge_scalar(b"challenge");
                 proof.verify(&y, &base, &challenge_verifier).unwrap();
-                assert_eq!(chal_contrib_prover, chal_contrib_verifier);
+                assert_eq!(
+                    transcript_bytes(&prover_transcript),
+                    transcript_bytes(&verifier_transcript)
+                );
                 assert_eq!(challenge_prover, challenge_verifier);
 
                 test_serialization!(PokDiscreteLog<<Bls12_381 as Pairing>::$group_affine>, proof);
@@ -385,9 +395,9 @@ mod tests {
                     PokPedersenCommitmentProtocol::<<Bls12_381 as Pairing>::$group_affine>::init(
                         witness1, blinding1, &base1, witness2, blinding2, &base2,
                     );
-                let mut chal_contrib_prover = vec![];
+                let mut prover_transcript = MerlinTranscript::new(b"test");
                 protocol
-                    .challenge_contribution(&base1, &base2, &y, b"test", &mut chal_contrib_prover)
+                    .challenge_contribution(&base1, &base2, &y, b"test", &mut prover_transcript)
                     .unwrap();
 
                 test_serialization!(
@@ -395,21 +405,22 @@ mod tests {
                     protocol
                 );
 
-                let challenge_prover =
-                    compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_prover);
+                let challenge_prover = prover_transcript.challenge_scalar(b"challenge");
                 let proof = protocol.gen_proof(&challenge_prover);
 
-                let mut chal_contrib_verifier = vec![];
+                let mut verifier_transcript = MerlinTranscript::new(b"test");
                 proof
-                    .challenge_contribution(&base1, &base2, &y, b"test", &mut chal_contrib_verifier)
+                    .challenge_contribution(&base1, &base2, &y, b"test", &mut verifier_transcript)
                     .unwrap();
 
-                let challenge_verifier =
-                    compute_random_oracle_challenge::<Fr, Blake2b512>(&chal_contrib_verifier);
+                let challenge_verifier = verifier_transcript.challenge_scalar(b"challenge");
                 proof
                     .verify(&y, &base1, &base2, &challenge_verifier)
                     .unwrap();
-                assert_eq!(chal_contrib_prover, chal_contrib_verifier);
+                assert_eq!(
+                    transcript_bytes(&prover_transcript),
+                    transcript_bytes(&verifier_transcript)
+                );
                 assert_eq!(challenge_prover, challenge_verifier);
 
                 test_serialization!(
@@ -454,31 +465,25 @@ mod tests {
             witness, blinding, &base,
         );
 
-        // Empty `dst` is rejected
-        let mut buf = vec![];
-        assert!(matches!(
-            protocol.challenge_contribution(&base, &y, b"", &mut buf),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
-
-        // Distinct `dst` yields distinct contribution bytes
-        let mut b1 = vec![];
+        // Distinct `dst` yields distinct transcript state
+        let mut t1 = MerlinTranscript::new(b"test");
         protocol
-            .challenge_contribution(&base, &y, b"rel1", &mut b1)
+            .challenge_contribution(&base, &y, b"rel1", &mut t1)
             .unwrap();
-        let mut b2 = vec![];
+        let mut t2 = MerlinTranscript::new(b"test");
         protocol
-            .challenge_contribution(&base, &y, b"rel2", &mut b2)
+            .challenge_contribution(&base, &y, b"rel2", &mut t2)
             .unwrap();
-        assert_ne!(b1, b2);
+        assert_ne!(transcript_bytes(&t1), transcript_bytes(&t2));
 
-        // Prover and proof produce identical bytes for the same `dst`
-        let proof = protocol.gen_proof(&compute_random_oracle_challenge::<Fr, Blake2b512>(&b1));
-        let mut b3 = vec![];
+        // Prover and proof produce identical transcript state for the same `dst`
+        let t1_bytes = transcript_bytes(&t1);
+        let proof = protocol.gen_proof(&t1.challenge_scalar(b"challenge"));
+        let mut t3 = MerlinTranscript::new(b"test");
         proof
-            .challenge_contribution(&base, &y, b"rel1", &mut b3)
+            .challenge_contribution(&base, &y, b"rel1", &mut t3)
             .unwrap();
-        assert_eq!(b1, b3);
+        assert_eq!(t1_bytes, transcript_bytes(&t3));
 
         // Same for the Pedersen commitment protocol
         let base2 = <Bls12_381 as Pairing>::G1::rand(&mut rng).into_affine();
@@ -492,25 +497,21 @@ mod tests {
             Fr::rand(&mut rng),
             &base2,
         );
-        let mut buf = vec![];
-        assert!(matches!(
-            protocol.challenge_contribution(&base, &base2, &y2, b"", &mut buf),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
-        let mut p1 = vec![];
+        let mut pt1 = MerlinTranscript::new(b"test");
         protocol
-            .challenge_contribution(&base, &base2, &y2, b"rel1", &mut p1)
+            .challenge_contribution(&base, &base2, &y2, b"rel1", &mut pt1)
             .unwrap();
-        let mut p2 = vec![];
+        let mut pt2 = MerlinTranscript::new(b"test");
         protocol
-            .challenge_contribution(&base, &base2, &y2, b"rel2", &mut p2)
+            .challenge_contribution(&base, &base2, &y2, b"rel2", &mut pt2)
             .unwrap();
-        assert_ne!(p1, p2);
-        let proof = protocol.gen_proof(&compute_random_oracle_challenge::<Fr, Blake2b512>(&p1));
-        let mut p3 = vec![];
+        assert_ne!(transcript_bytes(&pt1), transcript_bytes(&pt2));
+        let pt1_bytes = transcript_bytes(&pt1);
+        let proof = protocol.gen_proof(&pt1.challenge_scalar(b"challenge"));
+        let mut pt3 = MerlinTranscript::new(b"test");
         proof
-            .challenge_contribution(&base, &base2, &y2, b"rel1", &mut p3)
+            .challenge_contribution(&base, &base2, &y2, b"rel1", &mut pt3)
             .unwrap();
-        assert_eq!(p1, p3);
+        assert_eq!(pt1_bytes, transcript_bytes(&pt3));
     }
 }

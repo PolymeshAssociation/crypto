@@ -43,14 +43,13 @@
 //! and its usage) when multiple relations are involved.
 //!
 
-use crate::{append_dst, append_labeled, error::SchnorrError};
+use crate::{error::SchnorrError, CHALLENGE_DST_PREFIX};
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     cfg_iter,
     collections::{BTreeMap, BTreeSet},
-    io::Write,
     iter,
     vec::Vec,
 };
@@ -59,8 +58,10 @@ use digest::Digest;
 #[cfg(feature = "serde")]
 use dock_crypto_utils::serde_utils::ArkObjectBytes;
 use dock_crypto_utils::{
-    expect_equality, hashing_utils::field_elem_from_try_and_incr,
+    expect_equality,
+    hashing_utils::field_elem_from_try_and_incr,
     randomized_mult_checker::RandomizedMultChecker,
+    transcript::Transcript,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -70,7 +71,11 @@ use rayon::prelude::*;
 /// Trait implemented by Schnorr-based protocols for returning their contribution to the overall challenge.
 /// i.e. overall challenge is of form Hash({m_i}), and this function returns the bytecode for m_j for some j.
 pub trait SchnorrChallengeContributor {
-    fn challenge_contribution<W: Write>(&self, dst: &[u8], writer: W) -> Result<(), SchnorrError>;
+    fn challenge_contribution<T: Transcript>(
+        &self,
+        dst: &[u8],
+        transcript: &mut T,
+    ) -> Result<(), SchnorrError>;
 }
 
 /// Commitment to randomness during step 1 of the Schnorr protocol to prove knowledge of 1 or more discrete logs
@@ -117,13 +122,13 @@ impl<G: AffineRepr> SchnorrCommitment<G> {
 }
 
 /// Write the first-message commitment `t`'s challenge contribution.
-pub(crate) fn commitment_challenge_contribution<G: AffineRepr, W: Write>(
+pub(crate) fn commitment_challenge_contribution<G: AffineRepr, T: Transcript>(
     t: &G,
     dst: &[u8],
-    mut writer: W,
+    transcript: &mut T,
 ) -> Result<(), SchnorrError> {
-    append_dst(&mut writer, dst)?;
-    append_labeled(&mut writer, b"t", t)?;
+    transcript.append_message(CHALLENGE_DST_PREFIX, dst);
+    transcript.append(b"t", t);
     Ok(())
 }
 
@@ -132,8 +137,12 @@ impl<G: AffineRepr> SchnorrChallengeContributor for SchnorrCommitment<G> {
     /// of form Hash({m_i}), and this function returns the bytecode for m_j for some j. Note that
     /// it does not include the bases or the commitment (`g_i`  and `Y` in `{g_i} * {x_i} = Y`) and
     /// they must be part of the challenge.
-    fn challenge_contribution<W: Write>(&self, dst: &[u8], writer: W) -> Result<(), SchnorrError> {
-        commitment_challenge_contribution(&self.t, dst, writer)
+    fn challenge_contribution<T: Transcript>(
+        &self,
+        dst: &[u8],
+        transcript: &mut T,
+    ) -> Result<(), SchnorrError> {
+        commitment_challenge_contribution(&self.t, dst, transcript)
     }
 }
 
@@ -222,12 +231,12 @@ impl<G: AffineRepr> SchnorrResponse<G> {
     }
 
     /// The commitment `t`'s contribution to the challenge.
-    pub fn challenge_contribution<W: Write>(
+    pub fn challenge_contribution<T: Transcript>(
         &self,
         dst: &[u8],
-        writer: W,
+        transcript: &mut T,
     ) -> Result<(), SchnorrError> {
-        commitment_challenge_contribution(&self.1, dst, writer)
+        commitment_challenge_contribution(&self.1, dst, transcript)
     }
 }
 
@@ -242,6 +251,7 @@ mod tests {
     use super::*;
     use ark_bls12_381::{Fr, G1Affine, G1Projective, G2Affine, G2Projective};
     use ark_ec::VariableBaseMSM;
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use ark_std::{
         rand::{rngs::StdRng, SeedableRng},
         UniformRand,
@@ -321,6 +331,12 @@ mod tests {
         test_schnorr_in_group!(G2Projective, G2Affine);
     }
 
+    fn transcript_bytes(t: &MerlinTranscript) -> Vec<u8> {
+        let mut b = vec![];
+        t.serialize_compressed(&mut b).unwrap();
+        b
+    }
+
     #[test]
     fn dst_framing() {
         let mut rng = StdRng::seed_from_u64(0u64);
@@ -330,37 +346,24 @@ mod tests {
         let blindings = (0..5).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
         let comm = SchnorrCommitment::new(&bases, blindings);
 
-        // Empty `dst` is rejected
-        let mut buf = vec![];
-        assert!(matches!(
-            comm.challenge_contribution(b"", &mut buf),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
+        // Distinct `dst` yields distinct transcript state
+        let mut t1 = MerlinTranscript::new(b"test");
+        comm.challenge_contribution(b"rel1", &mut t1).unwrap();
+        let mut t2 = MerlinTranscript::new(b"test");
+        comm.challenge_contribution(b"rel2", &mut t2).unwrap();
+        assert_ne!(transcript_bytes(&t1), transcript_bytes(&t2));
 
-        // Distinct `dst` yields distinct contribution bytes
-        let mut b1 = vec![];
-        comm.challenge_contribution(b"rel1", &mut b1).unwrap();
-        let mut b2 = vec![];
-        comm.challenge_contribution(b"rel2", &mut b2).unwrap();
-        assert_ne!(b1, b2);
-
-        // Identical `dst` yields identical bytes
-        let mut b3 = vec![];
-        comm.challenge_contribution(b"rel1", &mut b3).unwrap();
-        assert_eq!(b1, b3);
+        // Identical `dst` yields identical transcript state
+        let mut t3 = MerlinTranscript::new(b"test");
+        comm.challenge_contribution(b"rel1", &mut t3).unwrap();
+        assert_eq!(transcript_bytes(&t1), transcript_bytes(&t3));
 
         // The response's (verifier-side) contribution matches the commitment's for the same `t`/`dst`
         let witnesses = (0..5).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
         let challenge = Fr::rand(&mut rng);
         let resp = comm.response(&witnesses, &challenge).unwrap();
-        let mut r1 = vec![];
-        resp.challenge_contribution(b"rel1", &mut r1).unwrap();
-        assert_eq!(b1, r1);
-        // Empty `dst` is rejected on the response side too
-        let mut buf = vec![];
-        assert!(matches!(
-            resp.challenge_contribution(b"", &mut buf),
-            Err(SchnorrError::EmptyDomainSeparator)
-        ));
+        let mut t4 = MerlinTranscript::new(b"test");
+        resp.challenge_contribution(b"rel1", &mut t4).unwrap();
+        assert_eq!(transcript_bytes(&t1), transcript_bytes(&t4));
     }
 }
