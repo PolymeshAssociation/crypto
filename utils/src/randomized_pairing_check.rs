@@ -3,8 +3,8 @@ use ark_ec::{
     AffineRepr, PrimeGroup,
 };
 use ark_ff::{One, PrimeField, Zero};
-use ark_std::{cfg_iter, ops::MulAssign, rand::Rng, vec, vec::Vec, UniformRand};
-
+use ark_std::{cfg_iter, ops::MulAssign, vec, vec::Vec, UniformRand};
+use ark_std::rand::{CryptoRng, RngCore};
 use crate::error::UtilsError;
 
 #[cfg(feature = "parallel")]
@@ -62,7 +62,7 @@ impl<E: Pairing> RandomizedPairingChecker<E> {
     }
 
     /// Same as `Self::new` except that this generates a random value
-    pub fn new_using_rng<R: Rng>(rng: &mut R, lazy: bool) -> Self {
+    pub fn new_using_rng<R: RngCore + CryptoRng>(rng: &mut R, lazy: bool) -> Self {
         Self::new(E::ScalarField::rand(rng), lazy)
     }
 
