@@ -4,10 +4,10 @@ use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::{One, Zero};
 use ark_std::{
     iter::{IntoIterator, Iterator},
-    rand::Rng,
     vec::Vec,
     UniformRand,
 };
+use ark_std::rand::{CryptoRng, RngCore};
 use hashbrown::{hash_map::Entry, HashMap};
 
 use crate::error::UtilsError;
@@ -43,7 +43,7 @@ impl<G: AffineRepr> RandomizedMultCheckerGuard<G> {
     }
 
     /// Create a new `RandomizedMultCheckerGuard` with a random value generated using the given RNG.
-    pub fn new_using_rng<R: Rng>(rng: &mut R) -> Self {
+    pub fn new_using_rng<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         Self::new(G::ScalarField::rand(rng))
     }
 
@@ -118,7 +118,7 @@ impl<G0: AffineRepr, G1: AffineRepr> PairRandomizedMultCheckerGuard<G0, G1> {
     }
 
     /// Create a new `PairRandomizedMultCheckerGuard` with the random values generated using the given RNG.
-    pub fn new_using_rng<R: Rng>(rng: &mut R) -> Self {
+    pub fn new_using_rng<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         Self::new(G0::ScalarField::rand(rng), G1::ScalarField::rand(rng))
     }
 
@@ -239,7 +239,7 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
     }
 
     #[deprecated = "Use `RandomizedMultCheckerGuard::new` or `RandomizedMultCheckerGuard::new_using_rng` instead"]
-    pub fn new_using_rng<R: Rng>(rng: &mut R) -> Self {
+    pub fn new_using_rng<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         Self::_new(G::ScalarField::rand(rng))
     }
 

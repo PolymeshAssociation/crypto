@@ -1,6 +1,6 @@
 use ark_ff::Field;
-use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, rand::Rng, vec::Vec};
-
+use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, vec::Vec};
+use ark_std::rand::{CryptoRng, RngCore};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -64,7 +64,7 @@ pub fn weighted_norm<F: Field>(n: &[F], w: &F) -> F {
     weighted_inner_product(n, n, w)
 }
 
-pub fn non_zero_random<F: Field, R: Rng>(rng: &mut R) -> F {
+pub fn non_zero_random<F: Field, R: RngCore + CryptoRng>(rng: &mut R) -> F {
     let mut r = F::rand(rng);
     while r.is_zero() {
         r = F::rand(rng);
