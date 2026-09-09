@@ -9,9 +9,12 @@ use ark_ec::{
     pairing::{Pairing, PairingOutput},
     AffineRepr, CurveGroup, PrimeGroup,
 };
+#[cfg(feature = "std")]
 use ark_serialize::CanonicalSerialize;
+#[cfg(feature = "std")]
 use core::any::{Any, TypeId};
-use spin::{Once, RwLock};
+#[cfg(feature = "std")]
+use std::sync::{OnceLock, RwLock};
 
 #[cfg(feature = "ahash")]
 use ahash::RandomState;
@@ -134,21 +137,27 @@ fn bsgs_hasher() -> BsgsHasher {
 
 // A precomputed baby steps table, kept behind an `Arc`. Keyed by the type of the group and the
 // serialized `base` so the same table is reused across calls for the same `base`.
+#[cfg(feature = "std")]
 type CachedTable = Arc<dyn Any + Send + Sync>;
+#[cfg(feature = "std")]
 type BsgsCache = HashMap<(TypeId, Vec<u8>), CachedTable, BsgsHasher>;
 
-static CACHE: Once<RwLock<BsgsCache>> = Once::new();
+#[cfg(feature = "std")]
+static CACHE: OnceLock<RwLock<BsgsCache>> = OnceLock::new();
 
+#[cfg(feature = "std")]
 fn cache() -> &'static RwLock<BsgsCache> {
-    CACHE.call_once(|| RwLock::new(HashMap::with_hasher(bsgs_hasher())))
+    CACHE.get_or_init(|| RwLock::new(HashMap::with_hasher(bsgs_hasher())))
 }
 
+#[cfg(feature = "std")]
 fn cache_read<R>(f: impl FnOnce(&BsgsCache) -> R) -> R {
-    f(&cache().read())
+    f(&cache().read().unwrap())
 }
 
+#[cfg(feature = "std")]
 fn cache_write<R>(f: impl FnOnce(&mut BsgsCache) -> R) -> R {
-    f(&mut cache().write())
+    f(&mut cache().write().unwrap())
 }
 
 /// Baby steps `base * i -> i` for `i` in `[1, num_baby_steps]`.
@@ -191,6 +200,7 @@ impl<G: CurveGroup + Send + Sync> BabyStepsTable<G> {
     // Builds the table from the affine base, so serializing it for the cache key costs no inversion. A cached
     // table is reused only if it holds at least `num_steps` baby steps, else it is rebuilt larger and replaces
     // the smaller one, so the first caller's `table_size` does not cap later calls.
+    #[cfg(feature = "std")]
     pub fn get_or_build(base: G::Affine, num_steps: u64) -> Option<Arc<Self>> {
         let mut key = Vec::with_capacity(base.compressed_size());
         base.serialize_compressed(&mut key).ok()?;
@@ -214,6 +224,12 @@ impl<G: CurveGroup + Send + Sync> BabyStepsTable<G> {
             }
         });
         Some(stored)
+    }
+
+    // The table is rebuilt in each call.
+    #[cfg(not(feature = "std"))]
+    pub fn get_or_build(base: G::Affine, num_steps: u64) -> Option<Arc<Self>> {
+        Some(Arc::new(BabyStepsTable::new(base.into_group(), num_steps)))
     }
 
     // `base * i -> i` for `i` in `[1, num_steps]`
@@ -494,6 +510,7 @@ impl<E: Pairing> PairingBabyStepsTable<E> {
         self.table.get(x)
     }
 
+    #[cfg(feature = "std")]
     fn get_or_build(base: PairingOutput<E>, num_baby_steps: u64) -> Option<Arc<Self>> {
         let mut key = Vec::with_capacity(base.compressed_size());
         base.serialize_compressed(&mut key).ok()?;
@@ -517,6 +534,12 @@ impl<E: Pairing> PairingBabyStepsTable<E> {
             }
         });
         Some(stored)
+    }
+
+    // The table is rebuilt in each call.
+    #[cfg(not(feature = "std"))]
+    fn get_or_build(base: PairingOutput<E>, num_baby_steps: u64) -> Option<Arc<Self>> {
+        Some(Arc::new(PairingBabyStepsTable::new(base, num_baby_steps)))
     }
 }
 
