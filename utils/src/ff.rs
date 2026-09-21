@@ -1,6 +1,6 @@
 use ark_ff::Field;
-use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, vec::Vec};
 use ark_std::rand::{CryptoRng, RngCore};
+use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, vec::Vec};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -72,26 +72,44 @@ pub fn non_zero_random<F: Field, R: RngCore + CryptoRng>(rng: &mut R) -> F {
     r
 }
 
+// Two residue classes expose independent field multiplications while sharing
+// one squared step. Appending avoids zero-filling the output before it is
+// overwritten; short vectors retain the smaller scalar loop.
+const TWO_LANE_POWER_VECTOR_MIN_LEN: usize = 16;
+
 /// Powers of a finite field as `[1, s, s^2, .. s^{num-1}]`
 pub fn powers<F: Field>(s: &F, num: u32) -> Vec<F> {
-    let mut powers = Vec::with_capacity(num as usize);
-    if num > 0 {
-        powers.push(F::one());
-        for i in 1..num {
-            powers.push(powers[i as usize - 1] * s);
-        }
-    }
-    powers
+    powers_starting_from(F::one(), s, num)
 }
 
 /// Powers of a finite field as `[start, start*exp, start * exp^2, .. start * exp^{num-1}]`
 pub fn powers_starting_from<F: Field>(start: F, exp: &F, num: u32) -> Vec<F> {
-    let mut powers = Vec::with_capacity(num as usize);
-    if num > 0 {
-        powers.push(start);
-        for i in 1..num as usize {
-            powers.push(powers[i - 1] * exp);
+    let len = num as usize;
+    if len == 0 {
+        return Vec::new();
+    }
+    if len >= TWO_LANE_POWER_VECTOR_MIN_LEN {
+        // Taken from https://github.com/zakura-core/common/blob/main/crates/halo2_proofs/src/poly.rs
+        let step = exp.square();
+        let mut lane_powers = [start, start * exp];
+        let mut powers = Vec::with_capacity(len);
+        powers.extend_from_slice(&lane_powers);
+        while len - powers.len() >= lane_powers.len() {
+            lane_powers[0] *= step;
+            lane_powers[1] *= step;
+            powers.extend_from_slice(&lane_powers);
         }
+        if powers.len() != len {
+            lane_powers[0] *= step;
+            powers.push(lane_powers[0]);
+        }
+        return powers;
+    }
+
+    let mut powers = Vec::with_capacity(len);
+    powers.push(start);
+    for i in 1..len {
+        powers.push(powers[i - 1] * exp);
     }
     powers
 }
@@ -159,18 +177,21 @@ mod test {
     #[test]
     fn check_powers() {
         let mut rng = StdRng::seed_from_u64(0u64);
+        let start = Fr::rand(&mut rng);
 
-        let exp = Fr::rand(&mut rng);
-        let num = 10;
-        let mut p1 = powers(&exp, num);
-        assert!(p1[0].is_one());
-        for i in 1..num as usize {
-            assert_eq!(p1[i], p1[i - 1] * exp);
+        for base in [Fr::zero(), Fr::one(), -Fr::one(), Fr::rand(&mut rng)] {
+            for num in [0u32, 1, 2, 3, 15, 16, 17, 31, 32, 100, 101] {
+                let mut expected = Vec::with_capacity(num as usize);
+                let mut acc = Fr::one();
+                for _ in 0..num {
+                    expected.push(acc);
+                    acc *= base;
+                }
+                assert_eq!(powers(&base, num), expected);
+
+                let expected_from: Vec<_> = expected.iter().map(|p| start * p).collect();
+                assert_eq!(powers_starting_from(start, &base, num), expected_from);
+            }
         }
-
-        let p2 = powers_starting_from(exp.clone(), &exp, num - 1);
-        assert_eq!(p2[0], exp);
-        p1.remove(0);
-        assert_eq!(p1, p2);
     }
 }

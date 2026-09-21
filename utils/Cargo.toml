@@ -56,17 +56,24 @@ criterion = { version = "0.5", features = ["html_reports"] }
 
 #ark-bls12-381 = { workspace = true, default-features = false }
 #ark-secp256r1 = { workspace = true, default-features = false }
+#ark-vesta = { workspace = true, default-features = false }
 
 ark-bls12-381 = { version = "^0.5.0", default-features = false, features = ["curve"] }
 ark-secp256r1 = { version = "^0.5.0", default-features = false }
 ark-pallas = { version = "^0.5.0", default-features = false, features = ["curve"] }
+ark-vesta = { version = "^0.5.0", default-features = false }
 
 #ark-bls12-381 = { path = "../../arkworks-algebra/curves/bls12_381", default-features = false }
 #ark-secp256r1 = { path = "../../arkworks-algebra/curves/secp256r1", default-features = false }
 #ark-pallas = { path = "../../arkworks-algebra/curves/pallas", default-features = false }
+#ark-vesta = { path = "../../arkworks-algebra/curves/vesta", default-features = false }
 
 [[bench]]
 name = "scalar_multiplication"
+harness = false
+
+[[bench]]
+name = "discrete_log"
 harness = false
 
 [features]
