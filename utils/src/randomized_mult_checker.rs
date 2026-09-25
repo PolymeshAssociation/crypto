@@ -2,12 +2,12 @@
 use ahash::RandomState;
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::{One, Zero};
+use ark_std::rand::{CryptoRng, RngCore};
 use ark_std::{
     iter::{IntoIterator, Iterator},
     vec::Vec,
     UniformRand,
 };
-use ark_std::rand::{CryptoRng, RngCore};
 use hashbrown::{hash_map::Entry, HashMap};
 
 use crate::error::UtilsError;
@@ -379,6 +379,14 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
 impl<G: AffineRepr> Drop for RandomizedMultChecker<G> {
     fn drop(&mut self) {
         if self.cancelled || self.verified {
+            return;
+        }
+        // If we are being dropped because a panic is already unwinding through the caller's
+        // verifier code (e.g. the closure passed to `RandomizedMultCheckerGuard::with`), the
+        // accumulated terms are irrelevant and panicking again here would turn a catchable panic
+        // into a process abort (double panic). Just bail out.
+        #[cfg(feature = "std")]
+        if std::thread::panicking() {
             return;
         }
         // Only panic if verify fails.
@@ -768,5 +776,29 @@ mod test {
         checker.add_1(g1, &a1, c1);
         checker.add_1(g2, &a3, c2);
         checker.add_1(g3, &a2, c3);
+    }
+
+    /// A panic raised inside the guard's closure while the checker holds terms that would *not*
+    /// verify must stay a single, catchable panic. Before the `thread::panicking()` check in
+    /// `Drop`, the checker's own `panic!` fired during unwinding and aborted the process, which
+    /// would defeat any `catch_unwind` at a host boundary (and this test could not even run).
+    #[test]
+    fn panic_in_guard_closure_does_not_double_panic() {
+        let mut rng = StdRng::seed_from_u64(1u64);
+        let g1 = G1Affine::rand(&mut rng);
+        let a1 = Fr::rand(&mut rng);
+        let a2 = Fr::rand(&mut rng);
+        let wrong = (g1 * a2).into_affine();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+                // Accumulate a relation that does not hold, then panic as buggy caller code would.
+                checker.add_1(g1, &a1, wrong);
+                panic!("caller panicked while the checker holds unverifiable terms");
+                #[allow(unreachable_code)]
+                Ok(())
+            })
+        }));
+        assert!(result.is_err(), "the closure's panic must propagate as a normal panic");
     }
 }

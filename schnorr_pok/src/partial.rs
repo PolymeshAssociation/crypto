@@ -189,17 +189,28 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
         Ok(())
     }
 
+    /// Upper bound on `total_responses` accepted by [`Self::get_missing_response_indices`].
+    /// No sigma protocol in this crate has anywhere near this many discrete logs; `total_responses`
+    /// is prover-supplied so it must not be allowed to size an allocation or a loop.
+    pub const MAX_TOTAL_RESPONSES: u32 = 1 << 16;
+
     /// Get indices for which it does not have any response. These responses will be fetched from other protocols.
-    /// It allocates the amount of memory linear in `self.total_responses` so ensure that prover can't exploit this.
-    pub fn get_missing_response_indices(&self) -> BTreeSet<usize> {
-        // Maybe limit size of `self.total_responses` to a big enough constant
+    ///
+    /// `self.total_responses` is deserialized from the (untrusted) proof; if it exceeds
+    /// [`Self::MAX_TOTAL_RESPONSES`] the proof is malformed and an error is returned rather than
+    /// iterating/allocating linearly in the attacker-chosen value. `pre_verify`/`is_valid`
+    /// separately check `total_responses` against the number of bases.
+    pub fn get_missing_response_indices(&self) -> Result<BTreeSet<usize>, SchnorrError> {
+        if self.total_responses > Self::MAX_TOTAL_RESPONSES {
+            return Err(SchnorrError::InvalidResponse);
+        }
         let mut ids = BTreeSet::new();
         for i in 0..self.total_responses {
             if !self.responses.contains_key(&i) {
                 ids.insert(i as usize);
             }
         }
-        ids
+        Ok(ids)
     }
 
     /// Get response for the specified discrete log
@@ -242,7 +253,7 @@ impl<G: AffineRepr> PartialSchnorrResponse<G> {
                 return Err(SchnorrError::FoundCommonIndexInOwnAndReceivedResponses(i));
             }
             if i >= n {
-                return Err(SchnorrError::IndexOutOfBounds(i, n))
+                return Err(SchnorrError::IndexOutOfBounds(i, n));
             }
             full_resp[i] = r;
         }
@@ -527,7 +538,10 @@ mod tests {
             }
         }
         let resp_2 = comm_2.partial_response(diff_wits, &challenge).unwrap();
-        assert_eq!(resp_2.get_missing_response_indices(), common_wit_indices);
+        assert_eq!(
+            resp_2.get_missing_response_indices().unwrap(),
+            common_wit_indices
+        );
         let missing_responses = resp_1.get_responses(&common_wit_indices).unwrap();
         resp_2
             .is_valid(&bases_2, &y_2, &challenge, missing_responses.clone())
@@ -580,7 +594,7 @@ mod tests {
             resp_2.pre_verify(&bases_2, bad_missing_responses),
             Err(SchnorrError::IndexOutOfBounds(10, 10))
         ));
-      
+
         let mut bad_resp = resp_2.clone();
         bad_resp.responses.remove(&9);
         bad_resp.responses.insert(10, Fr::rand(&mut rng));
@@ -589,7 +603,6 @@ mod tests {
             Err(SchnorrError::IndexOutOfBounds(10, 10))
         ));
     }
-
 
     #[test]
     fn ped_comm_partial() {
