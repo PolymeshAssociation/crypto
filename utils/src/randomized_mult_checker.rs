@@ -10,76 +10,33 @@ use ark_std::{
 };
 use hashbrown::{hash_map::Entry, HashMap};
 
-use crate::error::UtilsError;
+use crate::{
+    checker_guard::{CheckerGuard, GuardedCheck},
+    error::UtilsError,
+};
 
-/// A guard for `RandomizedMultChecker` that ensures `verify()` is called at the end of the scope.
-///
-/// The guard pattern is used to ensure that `verify()` is always called, even if the caller forgets to call it explicitly.
-/// The `with` and `with_err` methods take a closure that performs the checks and returns a result.
-/// If the closure returns an error, the checker is cancelled and the error is returned.
-/// If the closure returns `Ok`, the checker is verified and the result is returned.
-/// This pattern ensures that `verify()` is always called, and if it fails, it will return an error.
-///
-/// Example usage:
-/// ```rust
-/// let mut rng = StdRng::seed_from_u64(0u64);
-/// let checker = RandomizedMultCheckerGuard::new_using_rng(&mut rng);
-/// checker.with(|checker| {
-///     proof.verify(checker)?;
-///     Ok(())
-/// })?;
-/// ```
-#[derive(Debug)]
-pub struct RandomizedMultCheckerGuard<G: AffineRepr> {
-    inner: RandomizedMultChecker<G>,
-}
+/// A `CheckerGuard` holding a `RandomizedMultChecker`.
+pub type RandomizedMultCheckerGuard<G> = CheckerGuard<RandomizedMultChecker<G>>;
 
 impl<G: AffineRepr> RandomizedMultCheckerGuard<G> {
-    /// Create a new `RandomizedMultCheckerGuard` with the given random value.
+    /// Create a guard holding a checker using the given random value.
     pub fn new(random: G::ScalarField) -> Self {
-        Self {
-            inner: RandomizedMultChecker::_new(random),
-        }
+        Self::wrap(RandomizedMultChecker::_new(random))
     }
 
-    /// Create a new `RandomizedMultCheckerGuard` with a random value generated using the given RNG.
+    /// Same as `Self::new` except that this generates a random value
     pub fn new_using_rng<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         Self::new(G::ScalarField::rand(rng))
     }
+}
 
-    /// Run the given closure with the inner `RandomizedMultChecker`.
-    pub fn with<O, E: From<UtilsError>>(
-        mut self,
-        f: impl FnOnce(&mut RandomizedMultChecker<G>) -> Result<O, E>,
-    ) -> Result<O, E> {
-        match f(&mut self.inner) {
-            Ok(result) => {
-                self.inner.verify()?;
-                Ok(result)
-            }
-            Err(err) => {
-                self.inner.cancel();
-                Err(err)
-            }
-        }
+impl<G: AffineRepr> GuardedCheck for RandomizedMultChecker<G> {
+    fn verify(&mut self) -> Result<(), UtilsError> {
+        self.do_verify()
     }
 
-    /// Run the given closure with the inner `RandomizedMultChecker`, and return the given error if verification fails.
-    pub fn with_err<O, E>(
-        mut self,
-        err: E,
-        f: impl FnOnce(&mut RandomizedMultChecker<G>) -> Result<O, E>,
-    ) -> Result<O, E> {
-        match f(&mut self.inner) {
-            Ok(result) => {
-                self.inner.verify().map_err(|_| err)?;
-                Ok(result)
-            }
-            Err(err) => {
-                self.inner.cancel();
-                Err(err)
-            }
-        }
+    fn cancel(&mut self) {
+        self.cancelled = true;
     }
 }
 

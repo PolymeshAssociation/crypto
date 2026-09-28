@@ -60,18 +60,20 @@ sha3 = { version = "0.10.6", default-features = false }
 #ark-poly = { path = "../arkworks-algebra/poly" }
 #ark-serialize = { path = "../arkworks-algebra/serialize" }
 #ark-bls12-381 = { path = "../arkworks-algebra/curves/bls12_381" }
+#ark-bn254 = { path = "../arkworks-algebra/curves/bn254" }
 #ark-secp256r1 = { path = "../arkworks-algebra/curves/secp256r1" }
 #ark-pallas = { path = "../arkworks-algebra/curves/pallas" }
 #ark-vesta = { path = "../arkworks-algebra/curves/vesta" }
 
-ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-bls12-381 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-secp256r1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-bls12-381 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-bn254 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-secp256r1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
 
 [profile.release]
 lto = true

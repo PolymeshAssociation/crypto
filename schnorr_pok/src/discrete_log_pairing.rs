@@ -168,7 +168,11 @@ impl<E: Pairing> PoKG2DiscreteLogInPairing<E> {
         challenge: &E::ScalarField,
         pairing_checker: &mut RandomizedPairingChecker<E>,
     ) {
-        pairing_checker.add_sources_and_target(other, self.response, &(self.t + *y * challenge))
+        pairing_checker.add_sources_and_target_g2_affine(
+            other,
+            &self.response,
+            &(self.t + *y * challenge),
+        )
     }
 }
 
@@ -176,6 +180,7 @@ impl<E: Pairing> PoKG2DiscreteLogInPairing<E> {
 mod tests {
     use super::*;
     use crate::test_serialization;
+    use dock_crypto_utils::randomized_pairing_check::RandomizedPairingCheckerGuard;
     use ark_bls12_381::{Bls12_381, Fr, G1Affine, G2Affine};
     use ark_ec::pairing::Pairing;
     use dock_crypto_utils::transcript::MerlinTranscript;
@@ -262,17 +267,21 @@ mod tests {
                 }
 
                 for lazy in [true, false] {
-                    let mut checker =
-                        RandomizedPairingChecker::<Bls12_381>::new_using_rng(&mut rng, lazy);
-                    for i in 0..count {
-                        proofs[i].verify_with_randomized_pairing_checker(
-                            &ys[i],
-                            &bases[i],
-                            &challenge,
-                            &mut checker,
-                        );
-                    }
-                    checker.verify().unwrap();
+                    let res = RandomizedPairingCheckerGuard::<Bls12_381>::new_using_rng(
+                        &mut rng, lazy,
+                    )
+                    .with_err((), |checker| {
+                        for i in 0..count {
+                            proofs[i].verify_with_randomized_pairing_checker(
+                                &ys[i],
+                                &bases[i],
+                                &challenge,
+                                checker,
+                            );
+                        }
+                        Ok(())
+                    });
+                    assert!(res.is_ok());
                 }
             };
         }
