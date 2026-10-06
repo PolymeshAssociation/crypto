@@ -35,4 +35,6 @@ pub use pairing::{
     solve_discrete_log_bsgs_precomputed_pairing,
     solve_discrete_log_bsgs_precomputed_pairing_with_table_size,
 };
-pub use setup::{BabyStepsTable, MAX_NUM_BABY_STEPS, MAX_NUM_BABY_STEPS_BATCH};
+pub use setup::{
+    clear_cached_tables, BabyStepsTable, MAX_NUM_BABY_STEPS, MAX_NUM_BABY_STEPS_BATCH,
+};

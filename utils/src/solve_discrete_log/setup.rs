@@ -150,6 +150,20 @@ fn cache_write<R>(f: impl FnOnce(&mut BsgsCache) -> R) -> R {
     f(&mut cache().write().unwrap())
 }
 
+/// Drop every table in the process-wide cache. A table still held by a caller is freed once released.
+/// The next solve for a `base` rebuilds its table.
+#[cfg(feature = "std")]
+pub fn clear_cached_tables() {
+    cache_write(|c| {
+        c.clear();
+        c.shrink_to_fit();
+    });
+}
+
+// Nothing is cached.
+#[cfg(not(feature = "std"))]
+pub fn clear_cached_tables() {}
+
 // Look up a cached table by `map_key` and return it if `is_enough`, else build one, given the entry it
 // supersedes, and store it, re-checking under the write lock so a concurrent larger build is not
 // clobbered.
@@ -317,6 +331,7 @@ impl<G: CurveGroup + Send + Sync> BabyStepsTable<G> {
 /// Walk `start + k * step` in affine coordinates. Each `advance` adds the anchor to the precomputed
 /// multiples `(1..=n) * step` sharing one batch inversion. A zero denominator (the
 /// anchor is +/- that multiple) falls back to projective arithmetic for that point.
+/// TODO: Note that this on for Short Weierstrass curves
 pub(super) struct AffineWalk<G: CurveGroup> {
     start: G,
     step: G,

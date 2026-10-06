@@ -199,9 +199,8 @@ fn solve_given_shifted_target<G: CurveGroup + Send + Sync + 'static>(
         }
     }
 
-    // `last_center = ceil((width - num_baby_steps) / giant_step) = (width - num_baby_steps + giant_step - 1) / giant_step`
-    // and `giant_step = 2*num_baby_steps + 1`
-    let last_center = (width + num_baby_steps) / giant_step;
+    // `last_center = ceil((width - num_baby_steps) / giant_step)`
+    let last_center = width.saturating_sub(num_baby_steps).div_ceil(giant_step);
     if last_center == 0 {
         return None;
     }
@@ -542,7 +541,8 @@ fn scan_centers<G: CurveGroup + Send + Sync + 'static>(
     last_center: u64,
     check_start: bool,
 ) -> Option<u64> {
-    let giant_step = baby_steps_table.giant_step_size();
+    let giant_step = baby_steps_table.giant_step_size() as u128;
+    let width_128 = width as u128;
     let neg_giant = (-baby_steps_table.giant_step).into_group();
     walk_blocks(
         start.into_group(),
@@ -554,21 +554,23 @@ fn scan_centers<G: CurveGroup + Send + Sync + 'static>(
         BLOCK_MIN,
         check_start,
         |c, p| {
-            let base_center = c * giant_step;
+            // In `u128` since the final center can exceed `u64::MAX` when `width` is close to it.
+            let base_center = c as u128 * giant_step;
             let Some((x, y)) = p else {
                 // Identity at a center pins the dlog to `base_center`. Out of range only at the final
                 // center, so returning `None` there ends the walk on the next step anyway.
-                return (base_center <= width).then_some(min + base_center);
+                return (base_center <= width_128).then(|| min + base_center as u64);
             };
             if let Some((i, stored_sign)) = baby_steps_table.get_unpacked(x) {
-                let i = i as u64;
+                let i = i as u128;
                 // The point is `base * (base_center + i)` or `base * (base_center - i)`.
                 let found = if y_sign(y) == stored_sign {
                     Some(base_center + i)
                 } else {
                     base_center.checked_sub(i)
                 };
-                if let Some(v) = found.filter(|&v| v <= width) {
+                if let Some(v) = found.filter(|&v| v <= width_128) {
+                    let v = v as u64;
                     if base_table.mul(v) == shifted_target {
                         return Some(min + v);
                     }

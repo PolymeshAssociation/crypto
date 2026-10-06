@@ -6,6 +6,7 @@ use super::{
 use std::{
     mem::size_of,
     ops::Mul,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -357,6 +358,65 @@ fn solving_discrete_log_fast_path_and_at_boundary() {
 }
 
 #[test]
+fn solving_discrete_log_full_u64_interval() {
+    // The full `u64` interval, where `width + num_baby_steps` would overflow. Dlogs stay inside chunk 0
+    // so the walk ends early.
+    let mut rng = StdRng::seed_from_u64(13u64);
+    let base = G1Projective::rand(&mut rng);
+    let g2 = G2Projective::rand(&mut rng);
+    let base_gt = <Bls12_381 as Pairing>::pairing(G1Projective::rand(&mut rng), g2);
+    let m = 1u64 << 10;
+    for dl in [0u64, 5, m, m + 1, 5000, 500_000] {
+        let target = base * Fr::from(dl);
+        assert_eq!(
+            Some(dl),
+            solve_discrete_log_bsgs_precomputed_with_table_size(u64::MAX, 0, m, base, target),
+            "dl={dl}"
+        );
+        assert_eq!(
+            vec![Some(dl)],
+            solve_discrete_log_bsgs_precomputed_batch_with_table_size(
+                u64::MAX,
+                0,
+                m,
+                base,
+                &[target]
+            ),
+            "batch dl={dl}"
+        );
+        assert_eq!(
+            Some(dl),
+            solve_discrete_log_bsgs_precomputed_pairing_with_table_size(
+                u64::MAX,
+                0,
+                m,
+                base_gt,
+                base_gt * Fr::from(dl)
+            ),
+            "pairing dl={dl}"
+        );
+    }
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn clearing_cached_tables() {
+    let mut rng = StdRng::seed_from_u64(17u64);
+    let base = G1Projective::rand(&mut rng).into_affine();
+    let t1 = BabyStepsTable::<G1Projective>::get_or_build(base, 1 << 8).unwrap();
+    let t2 = BabyStepsTable::<G1Projective>::get_or_build(base, 1 << 8).unwrap();
+    assert!(Arc::ptr_eq(&t1, &t2));
+    clear_cached_tables();
+    let t3 = BabyStepsTable::<G1Projective>::get_or_build(base, 1 << 8).unwrap();
+    assert!(!Arc::ptr_eq(&t1, &t3));
+    let target = base * Fr::from(1000u64);
+    assert_eq!(
+        Some(1000),
+        solve_discrete_log_bsgs_precomputed_with_table_size(1 << 16, 0, 1 << 8, base.into_group(), target)
+    );
+}
+
+#[test]
 fn base_mul_window_table() {
     let mut rng = StdRng::seed_from_u64(4u64);
     let base = G1Projective::rand(&mut rng);
@@ -554,6 +614,7 @@ fn grumpy_vs_bsgs_negation_timings() {
 // Worst-case (dl = max) comparison at large intervals. Only the cached-table algorithms are
 // feasible here. Grumpy uses the minimal complete baby table M + 1 with M = ceil(sqrt(max/2)).
 #[test]
+#[ignore = "slow and memory-heavy (tens of millions of baby steps at 50 bits), run explicitly with --ignored"]
 fn grumpy_large_interval_timings() {
     #[cfg(feature = "parallel")]
     println!("rayon threads: {}", rayon::current_num_threads());

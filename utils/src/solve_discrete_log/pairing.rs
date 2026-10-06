@@ -131,8 +131,10 @@ fn pairing_walk<E: Pairing>(
                 return Some(min + base_center);
             }
         } else if let Some(b) = table.get(&cur.0) {
-            let x = base_center + b as u64;
-            if x <= width && base.mul_bigint([x]) == shifted_target {
+            if let Some(x) = base_center
+                .checked_add(b as u64)
+                .filter(|&x| x <= width && base.mul_bigint([x]) == shifted_target)
+            {
                 return Some(min + x);
             }
         }
