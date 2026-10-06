@@ -9,8 +9,7 @@ use dock_crypto_utils::solve_discrete_log::{
     solve_discrete_log_bsgs_precomputed, solve_discrete_log_bsgs_precomputed_batch,
     solve_discrete_log_bsgs_precomputed_batch_large, solve_discrete_log_bsgs_precomputed_large,
     solve_discrete_log_bsgs_precomputed_pairing, solve_discrete_log_given_table,
-    solve_discrete_log_given_table_large, solve_discrete_log_grumpy,
-    solve_discrete_log_grumpy_given_table, solve_discrete_log_grumpy_precomputed_with_table_size,
+    solve_discrete_log_given_table_large,
     BabyStepsTable, MAX_NUM_BABY_STEPS,
 };
 
@@ -96,12 +95,6 @@ fn bsgs_precomputed_pairing_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-// Grumpy needs a baby table of M + 1 entries with M = ceil(sqrt(max/2)), so larger widths need
-// larger tables. 48+ bits are covered by the timing tests instead: the tables and walks there
-// take minutes per solve.
-const GRUMPY_SMALL_BITS: [u32; 2] = [16, 24];
-const GRUMPY_LARGE_BITS: [u32; 4] = [32, 36, 40, 44];
-
 // Batch sizes per width for the shared-base solver. The batch sizes its table from the number of targets,
 // so the comparison against a loop of single solves also measures that. 40 bits stops at 128 targets: the
 // loop alone already takes seconds per iteration there.
@@ -161,81 +154,11 @@ fn bsgs_batch_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-// Minimal complete baby table for the grumpy walk: M + 1 with M = ceil(sqrt(max/2)).
-fn grumpy_table_size(max: u64) -> u64 {
-    ((max as f64) / 2.0).sqrt().ceil() as u64 + 1
-}
-
-fn grumpy_benchmark(c: &mut Criterion) {
-    let mut rng = StdRng::seed_from_u64(0u64);
-    let base = G1Projective::rand(&mut rng);
-
-    // Reference implementation: fresh baby table and serial walk per call, so only small sizes.
-    let mut group = c.benchmark_group("Grumpy (G1)");
-    group.sample_size(10);
-    for &bits in &GRUMPY_SMALL_BITS {
-        let (max, target) = worst_case_target(base, bits);
-        group.bench_with_input(BenchmarkId::new("grumpy", bits), &bits, |b, _| {
-            b.iter(|| solve_discrete_log_grumpy(max, base, target))
-        });
-    }
-    group.finish();
-}
-
-fn grumpy_precomputed_benchmark(c: &mut Criterion) {
-    let mut rng = StdRng::seed_from_u64(0u64);
-    let base = G1Projective::rand(&mut rng);
-
-    // Cached tables, like `bsgs_precomputed_benchmark`: each size builds its M + 1 table once.
-    let mut group = c.benchmark_group("Grumpy Precomputed (G1)");
-    group.sample_size(10);
-    for &bits in GRUMPY_SMALL_BITS.iter().chain(GRUMPY_LARGE_BITS.iter()) {
-        let (max, target) = worst_case_target(base, bits);
-        group.bench_with_input(
-            BenchmarkId::new("grumpy_precomputed", bits),
-            &bits,
-            |b, _| {
-                b.iter(|| {
-                    solve_discrete_log_grumpy_precomputed_with_table_size(
-                        max,
-                        grumpy_table_size(max),
-                        base,
-                        target,
-                    )
-                })
-            },
-        );
-    }
-    group.finish();
-}
-
-fn grumpy_given_table_benchmark(c: &mut Criterion) {
-    let mut rng = StdRng::seed_from_u64(0u64);
-    let base = G1Projective::rand(&mut rng);
-
-    // Prebuilt tables, like `bsgs_given_table_benchmark`: isolates scan time from table builds.
-    let mut group = c.benchmark_group("Grumpy Given Table (G1)");
-    group.sample_size(10);
-    for &bits in GRUMPY_SMALL_BITS.iter().chain(GRUMPY_LARGE_BITS.iter()) {
-        let (max, target) = worst_case_target(base, bits);
-        let table = BabyStepsTable::new(base, grumpy_table_size(max));
-        group.bench_with_input(
-            BenchmarkId::new("grumpy_given_table", bits),
-            &bits,
-            |b, _| b.iter(|| solve_discrete_log_grumpy_given_table(&table, base, max, target)),
-        );
-    }
-    group.finish();
-}
-
 criterion_group!(
     benches,
     bsgs_precomputed_benchmark,
     bsgs_given_table_benchmark,
     bsgs_batch_benchmark,
     bsgs_precomputed_pairing_benchmark,
-    grumpy_benchmark,
-    grumpy_precomputed_benchmark,
-    grumpy_given_table_benchmark
 );
 criterion_main!(benches);
