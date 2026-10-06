@@ -67,11 +67,6 @@ pub(super) fn y_sign<F: Field>(y: &F) -> bool {
         .map_or(false, |c| c.into_bigint().is_odd())
 }
 
-/// x-coordinate and y-sign of an affine point, `None` for the identity.
-pub(super) fn xy_sign<G: CurveGroup>(p: &G::Affine) -> Option<(G::BaseField, bool)> {
-    p.xy().map(|(x, y)| (x, y_sign(&y)))
-}
-
 /// Maps a field element to an index in the table, kept as 128-bit hash of the field element.
 /// Keyed by a 64-bit hash of the key with a second 64-bit hash stored per entry. Keys whose
 /// first hash collides at build time go to `spill` and are matched on both hashes.

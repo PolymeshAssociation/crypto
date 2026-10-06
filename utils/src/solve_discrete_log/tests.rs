@@ -15,101 +15,12 @@ use ark_ec::{
     pairing::{Pairing, PairingOutput},
     AffineRepr, CurveGroup, PrimeGroup,
 };
-use ark_ff::AdditiveGroup;
 use ark_std::{
     rand::{prelude::StdRng, SeedableRng},
     UniformRand,
 };
 use hashbrown::HashMap;
 use integer_sqrt::IntegerSquareRoot;
-
-#[test]
-fn solving_discrete_log() {
-    let mut rng = StdRng::seed_from_u64(0u64);
-
-    fn check<G: AdditiveGroup + Mul<Fr, Output = G>>(
-        rng: &mut StdRng,
-        base: G,
-        check_large_value: bool,
-    ) {
-        let checks_per_max = 10;
-        let mut total_checks = 0;
-        let mut duration_naive = Duration::default();
-        let mut duration_bsgs = Duration::default();
-        let mut duration_bsgs_alt = Duration::default();
-
-        for max in [1, 2, 3, 4, 5, 6, 8, 15, 16, 31, 32, 255, 256, 65535] {
-            for _ in 0..checks_per_max {
-                let dl = (u16::rand(rng) as u64 % max) + 1;
-                let target = base * Fr::from(dl);
-
-                // println!("For max={} and discrete log={}", max, dl);
-                let start = Instant::now();
-                let dl_naive = solve_discrete_log_brute_force(max, base, target);
-                let time = start.elapsed();
-                assert_eq!(dl, dl_naive.unwrap());
-                // println!("Time for naive approach: {:?}", time);
-                duration_naive += time;
-
-                let start = Instant::now();
-                let dl_bsgs = solve_discrete_log_bsgs(max, base, target);
-                let time = start.elapsed();
-                assert_eq!(dl, dl_bsgs.unwrap());
-                // println!("Time for BSGS approach: {:?}", time);
-                duration_bsgs += time;
-
-                let start = Instant::now();
-                let dl_bsgs_alt = solve_discrete_log_bsgs_alt(max, base, target);
-                let time = start.elapsed();
-                assert_eq!(dl, dl_bsgs_alt.unwrap());
-                // println!("Time for alt. BSGS approach: {:?}", time);
-                duration_bsgs_alt += time;
-
-                total_checks += 1;
-            }
-        }
-
-        if check_large_value {
-            for dl in [
-                u32::MAX as u64,                  // 32-bit value
-                u32::MAX as u64 * u8::MAX as u64, // 40-bit value
-            ] {
-                let target = base * Fr::from(dl);
-                println!("For discrete log={}", dl);
-
-                let start = Instant::now();
-                let dl_bsgs = solve_discrete_log_bsgs(dl, base, target);
-                let time = start.elapsed();
-                assert_eq!(dl, dl_bsgs.unwrap());
-                println!("Time for BSGS approach: {:?}", time);
-
-                let start = Instant::now();
-                let dl_bsgs_alt = solve_discrete_log_bsgs_alt(dl, base, target);
-                let time = start.elapsed();
-                assert_eq!(dl, dl_bsgs_alt.unwrap());
-                println!("Time for alt. BSGS approach: {:?}", time);
-            }
-        }
-
-        let target = base * Fr::from(10);
-        assert!(solve_discrete_log_brute_force(8, base, target).is_none());
-        assert!(solve_discrete_log_bsgs(8, base, target).is_none());
-
-        println!("For total {} checks, brute force took {:?} and baby step giant step took {:?} and alt. baby step giant step took {:?}", total_checks, duration_naive, duration_bsgs, duration_bsgs_alt);
-    }
-
-    println!("\n\nTesting for group G1");
-    let g1 = G1Projective::rand(&mut rng);
-    check::<G1Projective>(&mut rng, g1, true);
-
-    println!("\n\nTesting for group G2");
-    let g2 = G2Projective::rand(&mut rng);
-    check::<G2Projective>(&mut rng, g2, true);
-
-    println!("\n\nTesting for group GT");
-    let gt = <Bls12_381 as Pairing>::pairing(g1, g2);
-    check::<PairingOutput<Bls12_381>>(&mut rng, gt, false);
-}
 
 #[test]
 fn solving_discrete_log_precomputed() {
@@ -206,15 +117,9 @@ fn solving_discrete_log_precomputed() {
     }
     let precomputed = start.elapsed();
 
-    let start = Instant::now();
-    for (i, t) in targets.iter().enumerate() {
-        assert_eq!(Some(dls[i]), solve_discrete_log_bsgs_alt(max, base, *t));
-    }
-    let existing = start.elapsed();
-
     println!(
-        "GT, {} solves up to {}: precomputed(+cache) {:?} vs bsgs_alt {:?}",
-        iters, max, precomputed, existing
+        "GT, {} solves up to {}: precomputed(+cache) {:?}",
+        iters, max, precomputed
     );
 
     let c_base = G1Projective::rand(&mut rng);
@@ -229,29 +134,19 @@ fn solving_discrete_log_precomputed() {
     }
     let c_precomputed = start.elapsed();
 
-    let start = Instant::now();
-    for (i, t) in c_targets.iter().enumerate() {
-        assert_eq!(Some(dls[i]), solve_discrete_log_bsgs_alt(max, c_base, *t));
-    }
-    let c_existing = start.elapsed();
-
     println!(
-        "G1, {} solves up to {}: precomputed(+cache) {:?} vs bsgs_alt {:?}",
-        iters, max, c_precomputed, c_existing
+        "G1, {} solves up to {}: precomputed(+cache) {:?}",
+        iters, max, c_precomputed
     );
 
     let shot_max = 65535u64;
     let m_bal = shot_max.integer_sqrt();
 
-    let mut t_old = Duration::default();
     let mut t_new = Duration::default();
     for _ in 0..iters {
         let b = <Bls12_381 as Pairing>::pairing(G1Projective::rand(&mut rng), g2);
         let dl = u16::rand(&mut rng) as u64;
         let target = b * Fr::from(dl);
-        let s = Instant::now();
-        assert_eq!(Some(dl), solve_discrete_log_bsgs(shot_max, b, target));
-        t_old += s.elapsed();
         let s = Instant::now();
         assert_eq!(
             Some(dl),
@@ -262,19 +157,15 @@ fn solving_discrete_log_precomputed() {
         t_new += s.elapsed();
     }
     println!(
-        "GT single-shot (no reuse), {} solves up to {} (m={}): bsgs {:?} vs new {:?}",
-        iters, shot_max, m_bal, t_old, t_new
+        "GT single-shot (no reuse), {} solves up to {} (m={}): bsgs {:?}",
+        iters, shot_max, m_bal, t_new
     );
 
-    let mut t_old = Duration::default();
     let mut t_new = Duration::default();
     for _ in 0..iters {
         let b = G1Projective::rand(&mut rng);
         let dl = u16::rand(&mut rng) as u64;
         let target = b * Fr::from(dl);
-        let s = Instant::now();
-        assert_eq!(Some(dl), solve_discrete_log_bsgs(shot_max, b, target));
-        t_old += s.elapsed();
         let s = Instant::now();
         assert_eq!(
             Some(dl),
@@ -283,8 +174,8 @@ fn solving_discrete_log_precomputed() {
         t_new += s.elapsed();
     }
     println!(
-        "G1 single-shot (no reuse), {} solves up to {} (m={}): bsgs {:?} vs new {:?}",
-        iters, shot_max, m_bal, t_old, t_new
+        "G1 single-shot (no reuse), {} solves up to {} (m={}): bsgs {:?}",
+        iters, shot_max, m_bal, t_new
     );
 }
 
