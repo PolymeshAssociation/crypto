@@ -338,6 +338,12 @@ impl<G: AffineRepr> Drop for RandomizedMultChecker<G> {
         if self.cancelled || self.verified {
             return;
         }
+        // Panicking here while already unwinding aborts the process. So let the original panic
+        // continue to propagate and avoid any potential panic if the `do_verify` call below fail.
+        #[cfg(feature = "std")]
+        if std::thread::panicking() {
+            return;
+        }
         // Only panic if verify fails.
         if let Err(err) = self.do_verify() {
             log::error!("Skipped `verify` call returns error: err={err:?}");
@@ -692,6 +698,45 @@ mod test {
                 start.elapsed()
             );
         }
+    }
+
+    /// A panic inside the closure drops the unverified, failing checker during unwinding without
+    /// a second panic
+    #[test]
+    #[should_panic(expected = "closure panicked")]
+    fn panic_in_closure() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let g1 = G1Affine::rand(&mut rng);
+        let a1 = Fr::rand(&mut rng);
+        let a2 = Fr::rand(&mut rng);
+        let c1 = (g1 * a1).into_affine();
+
+        let _ = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err((), |checker| {
+            checker.add_1(g1, &a2, c1);
+            panic!("closure panicked");
+            #[allow(unreachable_code)]
+            Ok(())
+        });
+    }
+
+    /// Same as `panic_in_closure` for the pair guard
+    #[test]
+    #[should_panic(expected = "closure panicked")]
+    fn panic_in_pair_closure() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let g1 = G1Affine::rand(&mut rng);
+        let a1 = Fr::rand(&mut rng);
+        let a2 = Fr::rand(&mut rng);
+        let c1 = (g1 * a1).into_affine();
+
+        let _ = PairRandomizedMultCheckerGuard::<G1Affine, G1Affine>::new_using_rng(&mut rng)
+            .with_err((), |checker0, checker1| {
+                checker0.add_1(g1, &a2, c1);
+                checker1.add_1(g1, &a2, c1);
+                panic!("closure panicked");
+                #[allow(unreachable_code)]
+                Ok(())
+            });
     }
 
     #[test]

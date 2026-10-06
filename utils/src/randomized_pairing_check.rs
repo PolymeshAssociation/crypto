@@ -167,7 +167,7 @@ impl<E: Pairing> GuardedCheck for RandomizedPairingChecker<E> {
 /// The right hand side of the equation can be given either as a `E::G2Affine`, which is only prepared
 /// once per distinct point at the end, or as an `E::G2Prepared`, which is grouped by its serialization.
 /// The two forms of the same point do not share a group.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RandomizedPairingChecker<E: Pairing> {
     /// a miller loop result that is to be multiplied by other miller loop results
     /// before going into a final exponentiation result
@@ -524,6 +524,11 @@ impl<E: Pairing> RandomizedPairingChecker<E> {
 impl<E: Pairing> Drop for RandomizedPairingChecker<E> {
     fn drop(&mut self) {
         if self.cancelled || self.verified {
+            return;
+        }
+        // Panicking here while already unwinding aborts the process.
+        #[cfg(feature = "std")]
+        if std::thread::panicking() {
             return;
         }
         // Only panic if verify fails.
@@ -953,6 +958,25 @@ mod test {
                 Err("failed")
             });
         assert_eq!(res, Err("failed"));
+    }
+
+    /// A panic inside the closure drops the unverified, failing checker during unwinding without
+    /// a second panic
+    #[test]
+    #[should_panic(expected = "closure panicked")]
+    fn panic_in_closure() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let a = <Bls12_381 as Pairing>::G1Affine::rand(&mut rng);
+        let b = <Bls12_381 as Pairing>::G2Affine::rand(&mut rng);
+        let out = Bls12_381::pairing(a, b);
+        let wrong_out = out + out;
+
+        let _ = Guard::new_using_rng(&mut rng, true).with_err((), |checker| {
+            checker.add_sources_and_target(&a, b, &wrong_out);
+            panic!("closure panicked");
+            #[allow(unreachable_code)]
+            Ok(())
+        });
     }
 
     #[test]

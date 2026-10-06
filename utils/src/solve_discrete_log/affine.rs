@@ -34,6 +34,7 @@ pub struct BaseTable<G: CurveGroup> {
 
 impl<G: CurveGroup + Send + Sync> BaseTable<G> {
     /// Table for products below `2^bits`.
+    /// Expects `0 < window < usize::BITS`
     pub fn new(base: G, bits: u32, window: u32) -> Self {
         let num_rows = bits.div_ceil(window) as usize;
         let per_row = (1usize << window) - 1;
