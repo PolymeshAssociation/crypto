@@ -64,14 +64,14 @@ sha3 = { version = "0.10.6", default-features = false }
 #ark-pallas = { path = "../arkworks-algebra/curves/pallas" }
 #ark-vesta = { path = "../arkworks-algebra/curves/vesta" }
 
-ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-bls12-381 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-secp256r1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
+ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-bls12-381 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-secp256r1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
 
 [profile.release]
 lto = true
