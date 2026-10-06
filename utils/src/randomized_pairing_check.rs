@@ -1,11 +1,11 @@
+use crate::error::UtilsError;
 use ark_ec::{
     pairing::{MillerLoopOutput, Pairing, PairingOutput},
     AffineRepr, PrimeGroup,
 };
 use ark_ff::{One, PrimeField, Zero};
-use ark_std::{cfg_iter, ops::MulAssign, vec, vec::Vec, UniformRand};
 use ark_std::rand::{CryptoRng, RngCore};
-use crate::error::UtilsError;
+use ark_std::{cfg_iter, ops::MulAssign, vec, vec::Vec, UniformRand};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;

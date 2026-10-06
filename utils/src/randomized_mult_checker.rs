@@ -2,12 +2,12 @@
 use ahash::RandomState;
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::{One, Zero};
+use ark_std::rand::{CryptoRng, RngCore};
 use ark_std::{
     iter::{IntoIterator, Iterator},
     vec::Vec,
     UniformRand,
 };
-use ark_std::rand::{CryptoRng, RngCore};
 use hashbrown::{hash_map::Entry, HashMap};
 
 use crate::error::UtilsError;
@@ -316,7 +316,7 @@ impl<G: AffineRepr> RandomizedMultChecker<G> {
             return Ok(());
         }
         let (points, scalars) = self.points_and_scalars_for_msm();
-        if G::Group::msm_unchecked(&points, &scalars).is_zero() {
+        if G::Group::msm_unchecked_full_width(&points, &scalars).is_zero() {
             Ok(())
         } else {
             Err(UtilsError::MultCheckFailed)
@@ -625,7 +625,7 @@ mod test {
     fn timing_comparison() {
         let mut rng = StdRng::seed_from_u64(0u64);
 
-        for i in [40, 60, 80, 100] {
+        for i in [40, 60, 80, 100, 1000, 2000, 4000] {
             let g = (0..i).map(|_| G1Affine::rand(&mut rng)).collect::<Vec<_>>();
             let h = (0..i).map(|_| G1Affine::rand(&mut rng)).collect::<Vec<_>>();
             let k = (0..i).map(|_| G1Affine::rand(&mut rng)).collect::<Vec<_>>();
