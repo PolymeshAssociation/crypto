@@ -419,6 +419,11 @@ impl<E: Pairing> RandomizedPairingChecker<E> {
         self.groups.len()
     }
 
+    /// Number of distinct targets accumulated so far.
+    pub fn num_targets(&self) -> usize {
+        self.targets.len()
+    }
+
     /// Add `e(a, b)^m` to the left side of the check, with `b` given as an affine point.
     fn add_pair_affine(&mut self, a: &E::G1Affine, b: &E::G2Affine, m: E::ScalarField) {
         if self.cancelled {
@@ -830,6 +835,78 @@ mod test {
                 let res = RandomizedPairingCheckerGuard::<E>::new_using_rng(&mut rng, lazy)
                     .with_err((), |checker| {
                         checker.add_sources_and_target(&a1[0], b1[0], &wrong_out);
+                        Ok(())
+                    });
+                assert!(res.is_err());
+            }
+
+            // Boundary cases with `TARGET_MSM_THRESHOLD` - 1, `TARGET_MSM_THRESHOLD`, and
+            // `TARGET_MSM_THRESHOLD` + 1 distinct targets for target-group MSM
+            let at = rand_g1::<E>(TARGET_MSM_THRESHOLD + 1, &mut rng);
+            let bt = rand_g2::<E>(TARGET_MSM_THRESHOLD + 1, &mut rng);
+            let out_targets: Vec<_> = (0..TARGET_MSM_THRESHOLD + 1).map(|i| E::pairing(at[i], bt[i])).collect();
+
+            for count in [TARGET_MSM_THRESHOLD - 1, TARGET_MSM_THRESHOLD, TARGET_MSM_THRESHOLD + 1] {
+                for lazy in [true, false] {
+                    // Valid equations pass using non-unit multipliers
+                    let res = RandomizedPairingCheckerGuard::<E>::new_using_rng(&mut rng, lazy)
+                        .with_err((), |checker| {
+                            for i in 0..count {
+                                checker.add_sources_and_target(&at[i], bt[i], &out_targets[i]);
+                            }
+                            assert_eq!(checker.num_targets(), count);
+                            Ok(())
+                        });
+                    assert!(res.is_ok());
+
+                    // Corrupting one target fails
+                    for corrupt_idx in [0, count - 1] {
+                        let wrong_out = out_targets[corrupt_idx] + out_targets[corrupt_idx];
+                        let res = RandomizedPairingCheckerGuard::<E>::new_using_rng(&mut rng, lazy)
+                            .with_err((), |checker| {
+                                for i in 0..count {
+                                    let target = if i == corrupt_idx {
+                                        &wrong_out
+                                    } else {
+                                        &out_targets[i]
+                                    };
+                                    checker.add_sources_and_target(&at[i], bt[i], target);
+                                }
+                                assert_eq!(checker.num_targets(), count);
+                                Ok(())
+                            });
+                        assert!(res.is_err());
+                    }
+                }
+            }
+
+            // Repeating the same target
+            for lazy in [true, false] {
+                let res = RandomizedPairingCheckerGuard::<E>::new_using_rng(&mut rng, lazy)
+                    .with_err((), |checker| {
+                        for _ in 0..(TARGET_MSM_THRESHOLD + 1) {
+                            checker.add_sources_and_target(&at[0], bt[0], &out_targets[0]);
+                        }
+                        assert_eq!(checker.num_targets(), 1);
+                        assert!(checker.num_targets() < TARGET_MSM_THRESHOLD);
+                        Ok(())
+                    });
+                res.unwrap();
+
+                // Corrupting one target when repeating also fails
+                let wrong_out = out_targets[0] + out_targets[0];
+                let res = RandomizedPairingCheckerGuard::<E>::new_using_rng(&mut rng, lazy)
+                    .with_err((), |checker| {
+                        for i in 0..(TARGET_MSM_THRESHOLD + 1) {
+                            let target = if i == TARGET_MSM_THRESHOLD {
+                                &wrong_out
+                            } else {
+                                &out_targets[0]
+                            };
+                            checker.add_sources_and_target(&at[0], bt[0], target);
+                        }
+                        assert_eq!(checker.num_targets(), 2);
+                        assert!(checker.num_targets() < TARGET_MSM_THRESHOLD);
                         Ok(())
                     });
                 assert!(res.is_err());
