@@ -1,5 +1,5 @@
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use digest::*;
+use digest::{crypto_common::BlockSizeUser, *};
 
 /// `CanonicalDeserialize + CanonicalSerialize`
 pub trait CanonicalSerDe: CanonicalDeserialize + CanonicalSerialize {}
@@ -12,9 +12,11 @@ impl<I, T: ExactSizeIterator<Item = I> + DoubleEndedIterator<Item = I>> DoubleEn
 {
 }
 
-/// Marks a type that implements `DynDigest + Default + Clone`.
-pub trait FullDigest: DynDigest + Default + Clone + FixedOutputReset {}
-impl<T: DynDigest + Default + Clone + FixedOutputReset> FullDigest for T {}
+/// Marks a type that implements `DynDigest + Default + Clone`. `BlockSizeUser` is required by
+/// arkworks' `DefaultFieldHasher`, whose `expand_message_xmd` of RFC 9380 is defined in terms of the
+/// hash block size.
+pub trait FullDigest: DynDigest + Default + Clone + FixedOutputReset + BlockSizeUser {}
+impl<T: DynDigest + Default + Clone + FixedOutputReset + BlockSizeUser> FullDigest for T {}
 
 /// `Send` if the `parallel` feature enabled
 #[cfg(feature = "parallel")]

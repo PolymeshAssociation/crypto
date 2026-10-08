@@ -45,6 +45,8 @@ pub mod msm;
 pub mod pairs;
 /// Polynomial utilities like multiplying polynomials, creating polynomial from roots, etc
 pub mod poly;
+/// Guard that verifies a randomized checker at the end of the scope
+pub mod checker_guard;
 /// An efficient way to check several equality relations involving scalar multiplications by combining the relations
 /// in a random linear combination and doing a single multi-scalar multiplication. Relies on Schwartz–Zippel lemma.
 pub mod randomized_mult_checker;
