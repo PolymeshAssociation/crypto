@@ -10,10 +10,10 @@ use hashbrown::{hash_map::Entry, HashMap};
 
 #[cfg(feature = "ahash")]
 use ahash::RandomState;
-#[cfg(feature = "std")]
 use ark_serialize::CanonicalSerialize;
-#[cfg(feature = "std")]
 use core::any::{Any, TypeId};
+#[cfg(not(feature = "std"))]
+use spin::{Once, RwLock};
 #[cfg(feature = "std")]
 use std::sync::{OnceLock, RwLock};
 
@@ -26,10 +26,7 @@ pub const MAX_NUM_BABY_STEPS: u64 = 1 << 18;
 pub const MAX_NUM_BABY_STEPS: u64 = 1 << 16;
 
 /// Cap on the baby steps table a batch may size itself to. About 60 MB at `1 << 21` entries.
-#[cfg(feature = "std")]
 pub const MAX_NUM_BABY_STEPS_BATCH: u64 = 1 << 21;
-#[cfg(not(feature = "std"))]
-pub const MAX_NUM_BABY_STEPS_BATCH: u64 = MAX_NUM_BABY_STEPS;
 
 /// Multiples of a walk step kept in affine, and the largest walk block.
 pub(super) const NORMALIZE_BLOCK: usize = 1 << 10;
@@ -122,17 +119,24 @@ impl FfToIndexMap {
 
 // A precomputed table, kept behind an `Arc`. Keyed by the type of the table and the serialized
 // `base` so the same table is reused across calls for the same `base`.
-#[cfg(feature = "std")]
 type CachedTable = Arc<dyn Any + Send + Sync>;
-#[cfg(feature = "std")]
 type BsgsCache = HashMap<(TypeId, Vec<u8>), CachedTable, BsgsHasher>;
 
+// `std::sync::RwLock` with `std`, a spinning `spin::RwLock` without. Locks are held only for map
+// lookups and inserts, never while a table is built.
 #[cfg(feature = "std")]
 static CACHE: OnceLock<RwLock<BsgsCache>> = OnceLock::new();
+#[cfg(not(feature = "std"))]
+static CACHE: Once<RwLock<BsgsCache>> = Once::new();
 
 #[cfg(feature = "std")]
 fn cache() -> &'static RwLock<BsgsCache> {
     CACHE.get_or_init(|| RwLock::new(HashMap::with_hasher(bsgs_hasher())))
+}
+
+#[cfg(not(feature = "std"))]
+fn cache() -> &'static RwLock<BsgsCache> {
+    CACHE.call_once(|| RwLock::new(HashMap::with_hasher(bsgs_hasher())))
 }
 
 #[cfg(feature = "std")]
@@ -140,14 +144,23 @@ fn cache_read<R>(f: impl FnOnce(&BsgsCache) -> R) -> R {
     f(&cache().read().unwrap())
 }
 
+#[cfg(not(feature = "std"))]
+fn cache_read<R>(f: impl FnOnce(&BsgsCache) -> R) -> R {
+    f(&cache().read())
+}
+
 #[cfg(feature = "std")]
 fn cache_write<R>(f: impl FnOnce(&mut BsgsCache) -> R) -> R {
     f(&mut cache().write().unwrap())
 }
 
+#[cfg(not(feature = "std"))]
+fn cache_write<R>(f: impl FnOnce(&mut BsgsCache) -> R) -> R {
+    f(&mut cache().write())
+}
+
 /// Drop every table in the process-wide cache. A table still held by a caller is freed once released.
 /// The next solve for a `base` rebuilds its table.
-#[cfg(feature = "std")]
 pub fn clear_cached_tables() {
     cache_write(|c| {
         c.clear();
@@ -155,14 +168,9 @@ pub fn clear_cached_tables() {
     });
 }
 
-// Nothing is cached.
-#[cfg(not(feature = "std"))]
-pub fn clear_cached_tables() {}
-
 // Look up a cached table by `map_key` and return it if `is_enough`, else build one, given the entry it
 // supersedes, and store it, re-checking under the write lock so a concurrent larger build is not
 // clobbered.
-#[cfg(feature = "std")]
 pub(super) fn get_or_build_cached<T: Any + Send + Sync>(
     map_key: (TypeId, Vec<u8>),
     is_enough: impl Fn(&T) -> bool,
@@ -244,7 +252,6 @@ impl<G: CurveGroup + Send + Sync> BabyStepsTable<G> {
     // Builds the table from the affine base, so serializing it for the cache key costs no inversion. A cached
     // table is reused only if it holds at least `num_steps` baby steps, else it is rebuilt larger and replaces
     // the smaller one, so the first caller's `table_size` does not cap later calls.
-    #[cfg(feature = "std")]
     pub fn get_or_build(base: G::Affine, num_steps: u64) -> Option<Arc<Self>> {
         let mut key = Vec::with_capacity(base.compressed_size());
         base.serialize_compressed(&mut key).ok()?;
@@ -254,12 +261,6 @@ impl<G: CurveGroup + Send + Sync> BabyStepsTable<G> {
             |t: &Self| t.num_steps >= num_steps,
             |_| BabyStepsTable::new(base.into_group(), num_steps),
         ))
-    }
-
-    // The table is rebuilt in each call.
-    #[cfg(not(feature = "std"))]
-    pub fn get_or_build(base: G::Affine, num_steps: u64) -> Option<Arc<Self>> {
-        Some(Arc::new(BabyStepsTable::new(base.into_group(), num_steps)))
     }
 
     // `(first hash, second hash, packed i and sign)` of `base * i` for `i` in `[1, num_steps]`.

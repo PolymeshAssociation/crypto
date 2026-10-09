@@ -289,7 +289,20 @@ fn solving_discrete_log_full_u64_interval() {
     }
 }
 
-#[cfg(feature = "std")]
+#[test]
+fn cached_table_reused_and_grown() {
+    let mut rng = StdRng::seed_from_u64(18u64);
+    let base = G1Projective::rand(&mut rng).into_affine();
+    let small = BabyStepsTable::<G1Projective>::get_or_build(base, 1 << 8).unwrap();
+    let again = BabyStepsTable::<G1Projective>::get_or_build(base, 1 << 7).unwrap();
+    assert!(Arc::ptr_eq(&small, &again));
+    let larger = BabyStepsTable::<G1Projective>::get_or_build(base, 1 << 9).unwrap();
+    assert!(!Arc::ptr_eq(&small, &larger));
+    assert_eq!(larger.num_steps, 1 << 9);
+    let reused = BabyStepsTable::<G1Projective>::get_or_build(base, 1 << 8).unwrap();
+    assert!(Arc::ptr_eq(&larger, &reused));
+}
+
 #[test]
 fn clearing_cached_tables() {
     let mut rng = StdRng::seed_from_u64(17u64);

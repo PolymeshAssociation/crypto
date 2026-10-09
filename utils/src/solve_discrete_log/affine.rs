@@ -3,23 +3,18 @@
 
 use alloc::{sync::Arc, vec, vec::Vec};
 use ark_ec::{AffineRepr, CurveGroup};
-use integer_sqrt::IntegerSquareRoot;
-
-#[cfg(feature = "std")]
 use ark_serialize::CanonicalSerialize;
-#[cfg(feature = "std")]
 use core::any::TypeId;
+use integer_sqrt::IntegerSquareRoot;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 #[cfg(feature = "parallel")]
 use super::setup::PAR_CHUNK_CENTERS;
-#[cfg(feature = "std")]
-use super::setup::get_or_build_cached;
 use super::setup::{
-    walk_blocks, y_sign, BabyStepsTable, BLOCK_MIN, MAX_NUM_BABY_STEPS, MAX_NUM_BABY_STEPS_BATCH,
-    SIGN_BIT,
+    get_or_build_cached, walk_blocks, y_sign, BabyStepsTable, BLOCK_MIN, MAX_NUM_BABY_STEPS,
+    MAX_NUM_BABY_STEPS_BATCH, SIGN_BIT,
 };
 
 /// Batch sizes at which a `BaseTable` window table should be used.
@@ -97,7 +92,6 @@ impl<G: CurveGroup + Send + Sync> BaseTable<G> {
     }
 
     // Cached per `base` like `BabyStepsTable`, grown to the largest `bits` and `window` asked for so far.
-    #[cfg(feature = "std")]
     pub fn get_or_build(base: G::Affine, bits: u32, window: u32) -> Option<Arc<Self>> {
         let mut key = Vec::with_capacity(base.compressed_size());
         base.serialize_compressed(&mut key).ok()?;
@@ -112,12 +106,6 @@ impl<G: CurveGroup + Send + Sync> BaseTable<G> {
                 Self::new(base.into_group(), bits, window)
             },
         ))
-    }
-
-    // The table is rebuilt in each call.
-    #[cfg(not(feature = "std"))]
-    pub fn get_or_build(base: G::Affine, bits: u32, window: u32) -> Option<Arc<Self>> {
-        Some(Arc::new(Self::new(base.into_group(), bits, window)))
     }
 }
 
