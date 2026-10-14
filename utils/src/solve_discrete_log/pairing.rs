@@ -7,20 +7,17 @@ use ark_ec::{
     PrimeGroup,
 };
 use ark_ff::Zero;
-
-#[cfg(feature = "std")]
 use ark_serialize::CanonicalSerialize;
-#[cfg(feature = "std")]
 use core::any::TypeId;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-#[cfg(feature = "std")]
-use super::setup::get_or_build_cached;
 #[cfg(feature = "parallel")]
 use super::setup::PAR_CHUNK_CENTERS;
-use super::setup::{bsgs_hasher, BsgsHasher, FfToIndexMap, MAX_NUM_BABY_STEPS};
+use super::setup::{
+    bsgs_hasher, get_or_build_cached, BsgsHasher, FfToIndexMap, MAX_NUM_BABY_STEPS,
+};
 
 /// Baby steps `base * i -> i` for `i` in `[1, num_baby_steps]` in the target group, keyed by the target-field
 /// element. The negation map is not used since there is no x-coordinate.
@@ -90,7 +87,6 @@ impl<E: Pairing> PairingBabyStepsTable<E> {
         self.index.get(x)
     }
 
-    #[cfg(feature = "std")]
     fn get_or_build(base: PairingOutput<E>, num_baby_steps: u64) -> Option<Arc<Self>> {
         let mut key = Vec::with_capacity(base.compressed_size());
         base.serialize_compressed(&mut key).ok()?;
@@ -100,12 +96,6 @@ impl<E: Pairing> PairingBabyStepsTable<E> {
             |t: &Self| t.num_steps >= num_baby_steps,
             |_| PairingBabyStepsTable::new(base, num_baby_steps),
         ))
-    }
-
-    // The table is rebuilt in each call.
-    #[cfg(not(feature = "std"))]
-    fn get_or_build(base: PairingOutput<E>, num_baby_steps: u64) -> Option<Arc<Self>> {
-        Some(Arc::new(PairingBabyStepsTable::new(base, num_baby_steps)))
     }
 }
 
